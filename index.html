@@ -139,6 +139,7 @@ let currentSection = 'dashboard';
 let allRecords = [];
 let recordCount = 0;
 let calendarDate = new Date(); 
+let dashboardChartRange = 'week'; // Controla si la gráfica muestra 'week' (semana) o 'month' (meses)
 
 const systemCollections = ['client', 'payment', 'user', 'checkin', 'product', 'sale', 'log'];
 
@@ -374,15 +375,41 @@ function renderDashboard() {
   const expiring = clients.filter(c => { if(!c.expiry) return false; const d=new Date(c.expiry + 'T12:00:00'); const diff=(d-new Date())/(1000*60*60*24); return diff>=0&&diff<=7; }).length;
   const checkins = getRecords('checkin').filter(c=>c.date===today()).length;
 
-  const weekDays = [];
-  for(let i=6;i>=0;i--) { const d=new Date(); d.setDate(d.getDate()-i); weekDays.push(d.toISOString().split('T')[0]); }
-  
-  const weekData = weekDays.map(d => {
-    const pInc = payments.filter(p=>p.date===d).reduce((s,p)=>s+(Number(p.amount)||0),0);
-    const sInc = sales.filter(s=>s.date===d).reduce((s,sale)=>s+(Number(sale.amount)||0),0);
-    return pInc + sInc;
-  });
-  const maxW = Math.max(...weekData,1);
+  // Variable global para controlar la vista de la gráfica sin errores
+  window.dashboardChartRange = window.dashboardChartRange || 'week';
+
+  // --- LÓGICA DE LA GRÁFICA DINÁMICA ---
+  let chartLabels = [];
+  let chartData = [];
+
+  if (window.dashboardChartRange === 'week') {
+    // Últimos 7 días
+    for(let i=6; i>=0; i--) {
+      const d = new Date(); d.setDate(d.getDate()-i);
+      const dStr = d.toISOString().split('T')[0];
+      chartLabels.push(new Date(dStr + 'T12:00:00').toLocaleDateString('es-MX',{weekday:'short'}));
+      
+      const pInc = payments.filter(p=>p.date===dStr).reduce((s,p)=>s+(Number(p.amount)||0),0);
+      const sInc = sales.filter(s=>s.date===dStr).reduce((s,sale)=>s+(Number(sale.amount)||0),0);
+      chartData.push(pInc + sInc);
+    }
+  } else {
+    // Últimos 6 meses (Vista Mensual)
+    const currentYear = new Date().getFullYear();
+    const currentMonth = new Date().getMonth();
+    
+    for(let i=5; i>=0; i--) {
+      const d = new Date(currentYear, currentMonth - i, 1);
+      const monthStr = d.toISOString().slice(0,7); 
+      chartLabels.push(d.toLocaleDateString('es-MX',{month:'short'}));
+      
+      const pInc = payments.filter(p=>p.date && p.date.startsWith(monthStr)).reduce((s,p)=>s+(Number(p.amount)||0),0);
+      const sInc = sales.filter(s=>s.date && s.date.startsWith(monthStr)).reduce((s,sale)=>s+(Number(sale.amount)||0),0);
+      chartData.push(pInc + sInc);
+    }
+  }
+
+  const maxW = Math.max(...chartData, 1);
 
   return `
   <div class="fade-in space-y-5">
@@ -396,15 +423,36 @@ function renderDashboard() {
       ${statCard('alert-triangle','Por vencer',expiring,'bg-amber-500/10','text-amber-400')}
     </div>
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      
       <div class="lg:col-span-2 bg-gym-surface rounded-xl p-4 border border-gym-border">
-        <h3 class="text-sm font-600 mb-3">Ingresos - Últimos 7 días</h3>
-        <div class="flex items-end gap-2 h-32">
-          ${weekDays.map((d,i) => `<div class="flex-1 flex flex-col items-center gap-1"><div class="w-full rounded-t-md bg-gym-accent/80 transition-all" style="height:${Math.max(weekData[i]/maxW*100,4)}%"></div><span class="text-[9px] text-gym-muted">${new Date(d + 'T12:00:00').toLocaleDateString('es-MX',{weekday:'short'})}</span></div>`).join('')}
+        <div class="flex items-center justify-between mb-3 border-b border-gym-border pb-2">
+          <h3 class="text-sm font-600 flex items-center gap-2"><i data-lucide="bar-chart-2" class="w-4 h-4 text-gym-accent"></i> Gráfica de Ingresos</h3>
+          
+          <select onchange="changeDashboardChart(this.value)" class="bg-gym-bg border border-gym-border text-xs rounded p-1 text-gym-muted focus:text-gym-text outline-none cursor-pointer">
+            <option value="week" ${window.dashboardChartRange === 'week' ? 'selected' : ''}>Últimos 7 días</option>
+            <option value="month" ${window.dashboardChartRange === 'month' ? 'selected' : ''}>Últimos 6 meses</option>
+          </select>
+        </div>
+        
+        <div class="flex items-end gap-2 h-40 mt-4">
+          ${chartData.map((val, i) => `
+            <div class="flex-1 h-full flex flex-col items-center justify-end gap-1 group relative">
+              
+              <div class="absolute -top-8 bg-gym-bg text-gym-text text-[10px] py-1 px-2 rounded border border-gym-accent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-lg">
+                ${formatMoney(val)}
+              </div>
+              
+              <div class="w-full rounded-t-md bg-gym-accent/80 hover:bg-gym-accent transition-all cursor-pointer" style="height:${Math.max((val/maxW)*100, 4)}%"></div>
+              
+              <span class="text-[9px] text-gym-muted uppercase tracking-wider">${chartLabels[i]}</span>
+            </div>
+          `).join('')}
         </div>
       </div>
+
       <div class="bg-gym-surface rounded-xl p-4 border border-gym-border">
-        <h3 class="text-sm font-600 mb-3">Actividad hoy</h3>
-        <div class="space-y-3">
+        <h3 class="text-sm font-600 mb-3 border-b border-gym-border pb-2">Actividad hoy</h3>
+        <div class="space-y-4 mt-4">
           <div class="flex items-center gap-3"><div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center"><i data-lucide="log-in" class="w-4 h-4 text-emerald-400"></i></div><div><p class="text-xs font-500">${checkins} Check-ins</p><p class="text-[10px] text-gym-muted">Entradas registradas</p></div></div>
           <div class="flex items-center gap-3"><div class="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center"><i data-lucide="credit-card" class="w-4 h-4 text-blue-400"></i></div><div><p class="text-xs font-500">${todayPayments.length} Pagos</p><p class="text-[10px] text-gym-muted">Mensualidades hoy</p></div></div>
           <div class="flex items-center gap-3"><div class="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center"><i data-lucide="shopping-cart" class="w-4 h-4 text-violet-400"></i></div><div><p class="text-xs font-500">${todaySales.length} Ventas POS</p><p class="text-[10px] text-gym-muted">Productos vendidos hoy</p></div></div>
@@ -412,6 +460,11 @@ function renderDashboard() {
       </div>
     </div>
   </div>`;
+}
+
+function changeDashboardChart(range) {
+  dashboardChartRange = range;
+  renderCurrentSection(); // Redibuja el dashboard con el nuevo cálculo
 }
 
 function statCard(icon,label,value,bg,tc) {
@@ -1593,21 +1646,53 @@ async function deleteSaleRecord(backendId) {
   }
 }
 
-// ===== DELETE GENÉRICO =====
+// ===== DELETE GENÉRICO Y EN CASCADA =====
 async function deleteRecord(backendId, type) {
   const record = allRecords.find(r => r.__backendId === backendId);
   if(!record) return;
+  
   const btn = window.event.currentTarget || window.event.srcElement;
   if(!btn.dataset.confirming) {
     btn.dataset.confirming = 'true';
     btn.innerHTML = '<span class="text-[10px] text-red-400 font-600">¿Eliminar?</span>';
-    setTimeout(() => { if(btn.dataset.confirming) { delete btn.dataset.confirming; btn.innerHTML = `<i data-lucide="trash-2" class="w-3.5 h-3.5 text-gym-muted"></i>`; if(window.lucide) lucide.createIcons(); }}, 3000);
+    setTimeout(() => { 
+      if(btn.dataset.confirming) { 
+        delete btn.dataset.confirming; 
+        btn.innerHTML = `<i data-lucide="trash-2" class="w-3.5 h-3.5 text-gym-muted"></i>`; 
+        if(window.lucide) lucide.createIcons(); 
+      }
+    }, 3000);
     return;
   }
   delete btn.dataset.confirming;
+
+  // --- NUEVA LÓGICA: ELIMINACIÓN EN CASCADA ---
+  // Si eliminamos un cliente, borramos también todo su historial
+  if (type === 'client') {
+    const clientName = record.name;
+    
+    // 1. Encontrar y borrar todos sus pagos (Limpia el calendario y finanzas)
+    const clientPayments = allRecords.filter(r => r.type === 'payment' && r.name === clientName);
+    for (const p of clientPayments) {
+        await window.dataSdk.delete(p);
+    }
+    
+    // 2. Encontrar y borrar todos sus check-ins
+    const clientCheckins = allRecords.filter(r => r.type === 'checkin' && r.name === clientName);
+    for (const c of clientCheckins) {
+        await window.dataSdk.delete(c);
+    }
+  }
+  // --------------------------------------------
+
+  // Finalmente, eliminamos el registro principal
   const r = await window.dataSdk.delete(record);
-  if(r.isOk) toast('Eliminado');
-  else toast('Error al eliminar','error');
+  
+  if(r.isOk) {
+      toast(type === 'client' ? 'Cliente e historial eliminados' : 'Eliminado');
+  } else {
+      toast('Error al eliminar', 'error');
+  }
 }
 
 // ===== EXPORTACIÓN GLOBAL PARA HTML =====
@@ -1642,6 +1727,12 @@ window.deleteRecord = deleteRecord;
 window.selectDay = selectDay;
 window.changeCal = changeCal;
 window.deletePaymentRecord = deletePaymentRecord;
+window.changeDashboardChart = changeDashboardChart;
+
+window.changeDashboardChart = function(range) {
+  window.dashboardChartRange = range;
+  renderCurrentSection(); // Recarga automáticamente la gráfica
+};
 
 // ===== INIT =====
 if(window.lucide) lucide.createIcons();
