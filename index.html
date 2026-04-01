@@ -1,0 +1,1591 @@
+<!doctype html>
+<html lang="es" class="h-full">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema POS & Gym Manager</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.263.0/dist/umd/lucide.min.js"></script>
+  <script src="/_sdk/element_sdk.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet">
+  <script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: { outfit: ['Outfit', 'sans-serif'] },
+      colors: {
+        gym: { bg: '#0a0a0f', surface: '#14141f', accent: '#f43f5e', accentHover: '#e11d48', text: '#e2e8f0', muted: '#64748b', border: '#1e1e2e', card: '#1a1a2e', success: '#10b981', warning: '#f59e0b', danger: '#ef4444' }
+      }
+    }
+  }
+}
+</script>
+  <style>
+html, body { height: 100%; margin: 0; overflow: hidden; }
+* { scrollbar-width: thin; scrollbar-color: #1e1e2e #0a0a0f; }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #0a0a0f; }
+::-webkit-scrollbar-thumb { background: #1e1e2e; border-radius: 3px; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideIn { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes pulse-glow { 0%, 100% { box-shadow: 0 0 8px rgba(244,63,94,0.3); } 50% { box-shadow: 0 0 20px rgba(244,63,94,0.6); } }
+.fade-in { animation: fadeIn 0.35s ease-out both; }
+.slide-in { animation: slideIn 0.3s ease-out both; }
+.glow { animation: pulse-glow 2s ease-in-out infinite; }
+.stat-card:hover { transform: translateY(-2px); transition: transform 0.2s; }
+input, select, textarea { background: #14141f !important; border: 1px solid #1e1e2e !important; color: #e2e8f0 !important; }
+input:focus, select:focus, textarea:focus { border-color: #f43f5e !important; outline: none; box-shadow: 0 0 0 2px rgba(244,63,94,0.2); }
+.nav-item { transition: all 0.2s; border-left: 3px solid transparent; }
+.nav-item:hover, .nav-item.active { background: rgba(244,63,94,0.1); border-left-color: #f43f5e; color: #f43f5e; }
+.toast { position: fixed; top: 20px; right: 20px; z-index: 9999; padding: 12px 20px; border-radius: 8px; color: white; font-weight: 500; animation: fadeIn 0.3s ease-out; }
+
+/* ESTILOS PARA IMPRESIÓN DEL TICKET */
+@media print {
+  body * { visibility: hidden; }
+  #printable-ticket, #printable-ticket * { visibility: visible; color: #000 !important; }
+  #printable-ticket { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important; margin: 0; padding: 10px; background: white; }
+  .no-print { display: none !important; }
+  body { background-color: white !important; }
+}
+
+/* CALENDAR STYLES */
+.cal-day { min-height: 80px; transition: all 0.2s; }
+.cal-day:hover { background: rgba(244,63,94,0.05); }
+.cal-today { border-color: #f43f5e !important; background: rgba(244,63,94,0.05); }
+</style>
+  <style>body { box-sizing: border-box; }</style>
+ </head>
+ <body class="h-full bg-gym-bg font-outfit text-gym-text">
+  <div id="app" class="h-full w-full flex flex-col">
+   <div id="login-screen" class="h-full w-full flex items-center justify-center p-4">
+    <div class="w-full max-w-sm fade-in">
+     <div class="text-center mb-8">
+      <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-gym-accent to-pink-700 flex items-center justify-center glow">
+       <i data-lucide="dumbbell" class="w-8 h-8 text-white"></i>
+      </div>
+      <h1 id="login-gym-name" class="text-3xl font-800 tracking-tight">GymPro Manager</h1>
+      <p id="login-gym-slogan" class="text-gym-muted mt-1 text-sm">Control de Ventas y Accesos</p>
+     </div>
+     <div class="bg-gym-surface rounded-2xl p-6 border border-gym-border">
+      <div class="mb-4">
+       <label for="login-user" class="block text-xs font-500 text-gym-muted mb-1.5">Usuario</label> 
+       <input id="login-user" type="text" placeholder="Ej: admin" class="w-full px-3 py-2.5 rounded-lg text-sm">
+      </div>
+      <div class="mb-6">
+       <label for="login-pass" class="block text-xs font-500 text-gym-muted mb-1.5">Contraseña</label> 
+       <input id="login-pass" type="password" placeholder="••••••" class="w-full px-3 py-2.5 rounded-lg text-sm">
+      </div>
+      <button onclick="doLogin()" class="w-full py-2.5 bg-gym-accent hover:bg-gym-accentHover text-white rounded-lg font-600 text-sm transition-colors">Iniciar Sesión</button>
+      <p id="login-error" class="text-gym-danger text-xs mt-3 hidden text-center bg-gym-danger/10 py-2 rounded-lg"></p>
+     </div>
+    </div>
+   </div><div id="main-app" class="h-full w-full hidden">
+    <header class="lg:hidden flex items-center justify-between px-4 py-3 bg-gym-surface border-b border-gym-border shrink-0 no-print">
+     <button onclick="toggleSidebar()" class="p-1.5"><i data-lucide="menu" class="w-5 h-5"></i></button> <span id="header-gym-name" class="font-700 text-sm">GymPro</span> <button onclick="doLogout()" class="p-1.5"><i data-lucide="log-out" class="w-5 h-5"></i></button>
+    </header>
+    <div class="flex flex-1 min-h-0" style="height:calc(100% - 0px)">
+     <aside id="sidebar" class="hidden lg:flex flex-col w-56 bg-gym-surface border-r border-gym-border shrink-0 h-full no-print">
+      <div class="p-4 border-b border-gym-border">
+       <div class="flex items-center gap-2">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-gym-accent to-pink-700 flex items-center justify-center">
+         <i data-lucide="dumbbell" class="w-4 h-4 text-white"></i>
+        </div><span id="sidebar-gym-name" class="font-700 text-sm truncate">GymPro Manager</span>
+       </div>
+      </div>
+      <nav id="sidebar-nav" class="flex-1 py-2 overflow-y-auto"></nav>
+      <div class="p-3 border-t border-gym-border">
+       <div class="flex items-center gap-2 mb-2">
+        <div class="w-7 h-7 rounded-full bg-gym-accent/20 flex items-center justify-center"><i data-lucide="user" class="w-3.5 h-3.5 text-gym-accent"></i>
+        </div>
+        <div class="min-w-0">
+         <p id="user-name" class="text-xs font-600 truncate">Admin</p>
+         <p id="user-role" class="text-[10px] text-gym-muted">Administrador</p>
+        </div>
+       </div><button onclick="doLogout()" class="w-full py-1.5 text-xs text-gym-muted hover:text-gym-accent transition-colors flex items-center justify-center gap-1"><i data-lucide="log-out" class="w-3 h-3"></i> Cerrar sesión</button>
+      </div>
+     </aside><div id="sidebar-overlay" class="hidden fixed inset-0 bg-black/60 z-40 lg:hidden no-print" onclick="toggleSidebar()"></div>
+     <div id="sidebar-mobile" class="hidden fixed left-0 top-0 bottom-0 w-64 bg-gym-surface z-50 lg:hidden overflow-y-auto no-print">
+      <div class="p-4 border-b border-gym-border flex items-center justify-between">
+       <span class="font-700 text-sm">Menú</span> <button onclick="toggleSidebar()"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <nav id="sidebar-nav-mobile" class="py-2"></nav>
+     </div><main id="content" class="flex-1 overflow-y-auto h-full p-4 lg:p-6"></main>
+    </div>
+   </div><div id="toast-container" class="no-print"></div>
+  </div>
+
+<script type="module">
+// ===== FIREBASE CONFIGURATION =====
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyB9pDqpoc0hvpQ7SEMoF7P8dx2agGYYCHY",
+  authDomain: "tortilleria-29c18.firebaseapp.com",
+  projectId: "tortilleria-29c18",
+  storageBucket: "tortilleria-29c18.firebasestorage.app",
+  messagingSenderId: "767059338986",
+  appId: "1:767059338986:web:d7da947cea0e6dc7b39993",
+  measurementId: "G-TPFVZN1KWN"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+// ===== STATE =====
+let selectedCalDate = null; // Guarda el día seleccionado en el calendario
+let currentUser = null;
+let currentSection = 'dashboard';
+let allRecords = [];
+let recordCount = 0;
+let calendarDate = new Date(); 
+
+const systemCollections = ['client', 'payment', 'user', 'checkin', 'product', 'sale', 'log'];
+
+systemCollections.forEach(type => {
+  const collectionName = type + 's';
+  onSnapshot(collection(db, collectionName), (snapshot) => {
+    allRecords = allRecords.filter(r => r.type !== type);
+    snapshot.forEach(docSnap => {
+      allRecords.push({ ...docSnap.data(), __backendId: docSnap.id, type: type });
+    });
+    recordCount = allRecords.length;
+    if(currentUser) renderCurrentSection();
+  });
+});
+
+window.dataSdk = {
+  create: async (data) => {
+    try {
+      const colName = data.type + 's';
+      data.timestamp = Date.now(); // <-- ESTO ES CLAVE: Guarda la hora exacta
+      const docRef = await addDoc(collection(db, colName), data);
+      return { isOk: true, id: docRef.id };
+    } catch (e) { console.error("Firebase Create Error:", e); return { isOk: false }; }
+  },
+  update: async (data) => {
+    try {
+      const colName = data.type + 's';
+      const docRef = doc(db, colName, data.__backendId);
+      const updateData = { ...data };
+      delete updateData.__backendId; 
+      await updateDoc(docRef, updateData);
+      return { isOk: true };
+    } catch (e) { console.error("Firebase Update Error:", e); return { isOk: false }; }
+  },
+  delete: async (data) => {
+    try {
+      const colName = data.type + 's';
+      await deleteDoc(doc(db, colName, data.__backendId));
+      return { isOk: true };
+    } catch (e) { console.error("Firebase Delete Error:", e); return { isOk: false }; }
+  }
+};
+
+
+
+const defaultConfig = {
+  gym_name: 'GymPro Manager',
+  gym_slogan: 'Control de Ventas y Accesos',
+  background_color: '#0a0a0f',
+  surface_color: '#14141f',
+  text_color: '#e2e8f0',
+  accent_color: '#f43f5e',
+  muted_color: '#64748b',
+  font_family: 'Outfit',
+  font_size: 14
+};
+
+// ===== ELEMENT SDK =====
+if(window.elementSdk) {
+  window.elementSdk.init({
+    defaultConfig,
+    onConfigChange: async (config) => {
+      const gn = config.gym_name || defaultConfig.gym_name;
+      const gs = config.gym_slogan || defaultConfig.gym_slogan;
+      const ff = config.font_family || defaultConfig.font_family;
+      const fs = config.font_size || defaultConfig.font_size;
+      const bg = config.background_color || defaultConfig.background_color;
+      const sf = config.surface_color || defaultConfig.surface_color;
+      const tc = config.text_color || defaultConfig.text_color;
+      const ac = config.accent_color || defaultConfig.accent_color;
+      const mc = config.muted_color || defaultConfig.muted_color;
+
+      document.body.style.fontFamily = `${ff}, Outfit, sans-serif`;
+      document.body.style.fontSize = `${fs}px`;
+      document.body.style.backgroundColor = bg;
+      document.body.style.color = tc;
+
+      document.querySelectorAll('.bg-gym-surface, header, aside').forEach(el => el.style.backgroundColor = sf);
+      document.querySelectorAll('.text-gym-accent, .nav-item.active').forEach(el => el.style.color = ac);
+      document.querySelectorAll('.text-gym-muted').forEach(el => el.style.color = mc);
+
+      const nameEls = ['login-gym-name','header-gym-name','sidebar-gym-name'];
+      nameEls.forEach(id => { const el = document.getElementById(id); if(el) el.textContent = gn; });
+      const sloganEl = document.getElementById('login-gym-slogan');
+      if(sloganEl) sloganEl.textContent = gs;
+    }
+  });
+}
+
+// ===== HELPERS =====
+function getRecords(type) { 
+  // ORDENAMOS POR TIMESTAMP PARA QUE LO NUEVO SALGA HASTA EL FINAL (Y LUEGO EL REVERSE LO PONGA AL PRINCIPIO)
+  return allRecords.filter(r => r.type === type).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)); 
+}
+function today() { return new Date().toISOString().split('T')[0]; }
+function formatDate(d) { if(!d) return '-'; try { return new Date(d + 'T12:00:00').toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'}); } catch { return d; }}
+function formatMoney(n) { return '$' + Number(n||0).toLocaleString('es-MX',{minimumFractionDigits:0}); }
+
+function toast(msg, type='success') {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = `toast ${type==='error'?'bg-gym-danger':'bg-gym-success'}`;
+  t.style.background = type==='error'?'#ef4444':'#10b981';
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => { t.style.opacity='0'; t.style.transition='opacity 0.3s'; setTimeout(()=>t.remove(),300); }, 2500);
+}
+
+// ===== AUTHENTICATION =====
+function doLogin() {
+  const user = document.getElementById('login-user').value.trim();
+  const pass = document.getElementById('login-pass').value.trim();
+  const errorEl = document.getElementById('login-error');
+
+  if(!user || !pass) { errorEl.textContent = 'Ingresa usuario y contraseña'; errorEl.classList.remove('hidden'); return; }
+
+  if (user === 'admin' && pass === 'admin') {
+    currentUser = { name: 'Admin Master', role: 'admin', username: 'admin' };
+  } else {
+    const dbUser = allRecords.find(r => r.type === 'user' && r.username === user && r.password === pass);
+    if (dbUser) { currentUser = { name: dbUser.name, role: dbUser.role === 'Administrador' ? 'admin' : 'employee', username: dbUser.username }; } 
+    else { errorEl.textContent = 'Credenciales incorrectas'; errorEl.classList.remove('hidden'); return; }
+  }
+
+  errorEl.classList.add('hidden');
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('main-app').classList.remove('hidden');
+  document.getElementById('user-name').textContent = currentUser.name;
+  document.getElementById('user-role').textContent = currentUser.role === 'admin' ? 'Administrador' : 'Mostrador';
+  
+  buildNav();
+  navigateTo('dashboard');
+  
+  window.dataSdk.create({ type:'log', name:currentUser.name, role:(currentUser.role==='admin'?'Admin':'Mostrador'), date:new Date().toISOString(), category:'login', status:'active', phone:'', email:'', membership:'', amount:0, method:'', expiry:'', schedule:'', checkin_date:'', notes:'' });
+  if(window.lucide) lucide.createIcons();
+}
+
+function doLogout() {
+  currentUser = null;
+  document.getElementById('main-app').classList.add('hidden');
+  document.getElementById('login-screen').classList.remove('hidden');
+  document.getElementById('login-user').value = '';
+  document.getElementById('login-pass').value = '';
+}
+
+document.getElementById('login-pass').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+
+// ===== NAVIGATION =====
+function buildNav() {
+  const adminNav = [
+    {id:'dashboard',icon:'layout-dashboard',label:'Dashboard'},
+    {id:'pos',icon:'shopping-cart',label:'Punto de Venta'},
+    {id:'clients',icon:'users',label:'Clientes'},
+    {id:'payments',icon:'calendar-check',label:'Mensualidades'},
+    {id:'products',icon:'package',label:'Productos'},
+    {id:'checkin',icon:'scan-line',label:'Check-in'},
+    {id:'sales-history',icon:'history',label:'Historial Ventas'},
+    {id:'finance',icon:'bar-chart-3',label:'Finanzas'},
+    {id:'users',icon:'users-cog',label:'Usuarios'},
+    {id:'access-log',icon:'shield',label:'Bitácora'}
+  ];
+  const empNav = [
+    {id:'dashboard',icon:'layout-dashboard',label:'Dashboard'},
+    {id:'pos',icon:'shopping-cart',label:'Punto de Venta'},
+    {id:'clients',icon:'users',label:'Clientes'},
+    {id:'payments',icon:'calendar-check',label:'Mensualidades'},
+    {id:'checkin',icon:'scan-line',label:'Check-in'},
+    {id:'sales-history',icon:'history',label:'Historial Ventas'}
+  ];
+  const items = currentUser.role==='admin' ? adminNav : empNav;
+  const html = items.map(i => `<button class="nav-item w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-500 text-gym-muted ${currentSection===i.id?'active':''}" onclick="navigateTo('${i.id}')"><i data-lucide="${i.icon}" class="w-4 h-4"></i>${i.label}</button>`).join('');
+  document.getElementById('sidebar-nav').innerHTML = html;
+  document.getElementById('sidebar-nav-mobile').innerHTML = html;
+  if(window.lucide) lucide.createIcons();
+}
+
+function toggleSidebar() {
+  document.getElementById('sidebar-overlay').classList.toggle('hidden');
+  document.getElementById('sidebar-mobile').classList.toggle('hidden');
+}
+
+function navigateTo(section) {
+  currentSection = section;
+  buildNav();
+  renderCurrentSection();
+  document.getElementById('sidebar-overlay').classList.add('hidden');
+  document.getElementById('sidebar-mobile').classList.add('hidden');
+}
+
+function renderCurrentSection() {
+  const c = document.getElementById('content');
+  const map = { 
+    dashboard: renderDashboard, 
+    clients: renderClients, 
+    payments: renderPayments, 
+    checkin: renderCheckin, 
+    finance: renderFinance, 
+    products: renderProducts, 
+    'access-log': renderAccessLog, 
+    pos: renderPOS, 
+    'sales-history': renderSalesHistory, 
+    users: renderUsers 
+  };
+  const fn = map[currentSection];
+  if(fn) { c.innerHTML = fn(); if(window.lucide) lucide.createIcons(); }
+}
+
+// ===== DASHBOARD =====
+function renderDashboard() {
+  const clients = getRecords('client');
+  const payments = getRecords('payment');
+  const sales = getRecords('sale');
+
+  const active = clients.filter(c=>c.status==='active').length;
+  
+  const todayPayments = payments.filter(p=>p.date===today());
+  const todayPaymentsIncome = todayPayments.reduce((s,p)=>s+(p.amount||0),0);
+  const monthPayments = payments.filter(p=>p.date&&p.date.startsWith(new Date().toISOString().slice(0,7)));
+  const monthPaymentsIncome = monthPayments.reduce((s,p)=>s+(p.amount||0),0);
+
+  const todaySales = sales.filter(s=>s.date===today());
+  const todaySalesIncome = todaySales.reduce((s,p)=>s+(p.amount||0),0);
+  const monthSales = sales.filter(p=>p.date&&p.date.startsWith(new Date().toISOString().slice(0,7)));
+  const monthSalesIncome = monthSales.reduce((s,p)=>s+(p.amount||0),0);
+
+  const todayIncome = todayPaymentsIncome + todaySalesIncome;
+  const monthIncome = monthPaymentsIncome + monthSalesIncome;
+
+  const expiring = clients.filter(c => { if(!c.expiry) return false; const d=new Date(c.expiry + 'T12:00:00'); const diff=(d-new Date())/(1000*60*60*24); return diff>=0&&diff<=7; }).length;
+  const checkins = getRecords('checkin').filter(c=>c.date===today()).length;
+
+  const weekDays = [];
+  for(let i=6;i>=0;i--) { const d=new Date(); d.setDate(d.getDate()-i); weekDays.push(d.toISOString().split('T')[0]); }
+  
+  const weekData = weekDays.map(d => {
+    const pInc = payments.filter(p=>p.date===d).reduce((s,p)=>s+(p.amount||0),0);
+    const sInc = sales.filter(s=>s.date===d).reduce((s,sale)=>s+(sale.amount||0),0);
+    return pInc + sInc;
+  });
+  const maxW = Math.max(...weekData,1);
+
+  return `
+  <div class="fade-in space-y-5">
+    <div class="flex items-center justify-between">
+      <div><h1 class="text-xl font-800">Dashboard</h1><p class="text-gym-muted text-xs">${new Date().toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</p></div>
+    </div>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      ${statCard('dollar-sign','Hoy (Total)',formatMoney(todayIncome),'bg-emerald-500/10','text-emerald-400')}
+      ${statCard('trending-up','Mes (Total)',formatMoney(monthIncome),'bg-blue-500/10','text-blue-400')}
+      ${statCard('users','Activos',active,'bg-violet-500/10','text-violet-400')}
+      ${statCard('alert-triangle','Por vencer',expiring,'bg-amber-500/10','text-amber-400')}
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div class="lg:col-span-2 bg-gym-surface rounded-xl p-4 border border-gym-border">
+        <h3 class="text-sm font-600 mb-3">Ingresos - Últimos 7 días</h3>
+        <div class="flex items-end gap-2 h-32">
+          ${weekDays.map((d,i) => `<div class="flex-1 flex flex-col items-center gap-1"><div class="w-full rounded-t-md bg-gym-accent/80 transition-all" style="height:${Math.max(weekData[i]/maxW*100,4)}%"></div><span class="text-[9px] text-gym-muted">${new Date(d + 'T12:00:00').toLocaleDateString('es-MX',{weekday:'short'})}</span></div>`).join('')}
+        </div>
+      </div>
+      <div class="bg-gym-surface rounded-xl p-4 border border-gym-border">
+        <h3 class="text-sm font-600 mb-3">Actividad hoy</h3>
+        <div class="space-y-3">
+          <div class="flex items-center gap-3"><div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center"><i data-lucide="log-in" class="w-4 h-4 text-emerald-400"></i></div><div><p class="text-xs font-500">${checkins} Check-ins</p><p class="text-[10px] text-gym-muted">Entradas registradas</p></div></div>
+          <div class="flex items-center gap-3"><div class="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center"><i data-lucide="credit-card" class="w-4 h-4 text-blue-400"></i></div><div><p class="text-xs font-500">${todayPayments.length} Pagos</p><p class="text-[10px] text-gym-muted">Mensualidades hoy</p></div></div>
+          <div class="flex items-center gap-3"><div class="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center"><i data-lucide="shopping-cart" class="w-4 h-4 text-violet-400"></i></div><div><p class="text-xs font-500">${todaySales.length} Ventas POS</p><p class="text-[10px] text-gym-muted">Productos vendidos hoy</p></div></div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function statCard(icon,label,value,bg,tc) {
+  return `<div class="stat-card bg-gym-surface rounded-xl p-3 border border-gym-border cursor-default"><div class="w-8 h-8 rounded-lg ${bg} flex items-center justify-center mb-2"><i data-lucide="${icon}" class="w-4 h-4 ${tc}"></i></div><p class="text-lg font-700">${value}</p><p class="text-[10px] text-gym-muted">${label}</p></div>`;
+}
+
+// ===== USUARIOS E EMPLEADOS =====
+let editingUserId = null;
+
+function renderUsers() {
+  const users = getRecords('user');
+  return `
+  <div class="fade-in space-y-4">
+    <div class="flex items-center justify-between flex-wrap gap-2">
+      <h1 class="text-xl font-800">Usuarios del Sistema</h1>
+      <button onclick="showUserForm()" class="px-3 py-2 bg-gym-accent hover:bg-gym-accentHover text-white rounded-lg text-xs font-600 flex items-center gap-1.5 transition-colors"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Nuevo Usuario</button>
+    </div>
+    
+    <div id="user-form-area"></div>
+    
+    <div class="space-y-2">
+      <div class="bg-gym-surface rounded-xl p-3 border border-gym-accent/40 flex items-center gap-3 slide-in">
+        <div class="w-10 h-10 rounded-full bg-gym-accent/20 text-gym-accent flex items-center justify-center font-700 text-xs shrink-0">AD</div>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-600 truncate">Administrador Master</p>
+          <p class="text-[10px] text-gym-muted">Rol: Administrador · Usuario: <span class="text-gym-text">admin</span></p>
+        </div>
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-600 bg-emerald-500/10 text-emerald-400">Sistema</span>
+      </div>
+      
+      ${users.length === 0 ? '' : users.map(u => `
+      <div class="bg-gym-surface rounded-xl p-3 border border-gym-border flex items-center gap-3 slide-in">
+        <div class="w-10 h-10 rounded-full bg-violet-500/10 text-violet-400 flex items-center justify-center font-700 text-xs shrink-0">${(u.name||'?')[0].toUpperCase()}</div>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-600 truncate">${u.name}</p>
+          <p class="text-[10px] text-gym-muted">Rol: ${u.role||'Mostrador'} · Usuario: <span class="text-gym-text">${u.username}</span> · Pass: <span class="text-gym-text">${u.password}</span></p>
+        </div>
+        <button onclick="showUserForm('${u.__backendId}')" class="p-1.5 hover:bg-blue-500/10 rounded-lg transition-colors"><i data-lucide="edit" class="w-3.5 h-3.5 text-gym-muted hover:text-blue-400"></i></button>
+        <button onclick="deleteRecord('${u.__backendId}','user')" class="p-1.5 hover:bg-red-500/10 rounded-lg transition-colors"><i data-lucide="trash-2" class="w-3.5 h-3.5 text-gym-muted hover:text-red-400"></i></button>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function showUserForm(id = null) {
+  editingUserId = id;
+  let u = { name: '', username: '', password: '', role: 'Mostrador' };
+  if(id) u = allRecords.find(r => r.__backendId === id) || u;
+  
+  document.getElementById('user-form-area').innerHTML = `
+  <div class="bg-gym-surface rounded-xl p-4 border border-gym-border fade-in">
+    <h3 class="text-sm font-600 mb-3">${id ? 'Editar Usuario' : 'Nuevo Usuario'}</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div>
+        <label class="text-[10px] text-gym-muted">Nombre del empleado</label>
+        <input id="uf-name" value="${u.name}" class="w-full px-3 py-2 rounded-lg text-xs mt-1" placeholder="Ej: Juan Pérez">
+      </div>
+      <div>
+        <label class="text-[10px] text-gym-muted">Nombre de Usuario (Para iniciar sesión)</label>
+        <input id="uf-username" value="${u.username}" class="w-full px-3 py-2 rounded-lg text-xs mt-1" placeholder="Ej: juan123">
+      </div>
+      <div>
+        <label class="text-[10px] text-gym-muted">Contraseña</label>
+        <input id="uf-password" value="${u.password}" class="w-full px-3 py-2 rounded-lg text-xs mt-1" placeholder="••••••">
+      </div>
+      <div>
+        <label class="text-[10px] text-gym-muted">Rol en el sistema</label>
+        <select id="uf-role" class="w-full px-3 py-2 rounded-lg text-xs mt-1">
+          <option ${u.role === 'Mostrador' ? 'selected' : ''}>Mostrador</option>
+          <option ${u.role === 'Administrador' ? 'selected' : ''}>Administrador</option>
+        </select>
+      </div>
+    </div>
+    <div class="flex gap-2 mt-4">
+      <button onclick="saveUser()" class="px-4 py-2 bg-gym-accent hover:bg-gym-accentHover text-white rounded-lg text-xs font-600 transition-colors">${id ? 'Actualizar' : 'Guardar'}</button>
+      <button onclick="document.getElementById('user-form-area').innerHTML=''; editingUserId=null;" class="px-4 py-2 bg-gym-border text-gym-muted rounded-lg text-xs font-600">Cancelar</button>
+    </div>
+  </div>`;
+  if(window.lucide) lucide.createIcons();
+}
+
+async function saveUser() {
+  const name = document.getElementById('uf-name').value.trim();
+  const username = document.getElementById('uf-username').value.trim();
+  const password = document.getElementById('uf-password').value.trim();
+  const role = document.getElementById('uf-role').value;
+
+  if(!name || !username || !password) { toast('Todos los campos son obligatorios', 'error'); return; }
+  if(username.toLowerCase() === 'admin') { toast('El usuario "admin" está reservado', 'error'); return; }
+
+  if(editingUserId) {
+    const existing = allRecords.find(r => r.__backendId === editingUserId);
+    if(existing) {
+      const conflict = allRecords.find(r => r.type === 'user' && r.username === username && r.__backendId !== editingUserId);
+      if(conflict) { toast('El nombre de usuario ya está en uso', 'error'); return; }
+      const r = await window.dataSdk.update({...existing, name, username, password, role});
+      if(r.isOk) { toast('Usuario actualizado'); editingUserId = null; document.getElementById('user-form-area').innerHTML = ''; } 
+      else { toast('Error al actualizar', 'error'); }
+    }
+  } else {
+    const exist = allRecords.find(r => r.type === 'user' && r.username === username);
+    if(exist) { toast('El nombre de usuario ya existe', 'error'); return; }
+    const r = await window.dataSdk.create({
+      type: 'user', name, username, password, role,
+      status: 'active', phone: '', email: '', membership: '', amount: 0, method: '',
+      date: today(), expiry: '', schedule: '', checkin_date: '', notes: '', category: ''
+    });
+    if(r.isOk) { toast('Usuario registrado con éxito'); document.getElementById('user-form-area').innerHTML = ''; } 
+    else { toast('Error al guardar', 'error'); }
+  }
+}
+
+// ===== CLIENTS =====
+function renderClients() {
+  const clients = getRecords('client');
+  return `
+  <div class="fade-in space-y-4">
+    <div class="flex items-center justify-between flex-wrap gap-2">
+      <h1 class="text-xl font-800">Clientes</h1>
+      <button onclick="showClientForm()" class="px-3 py-2 bg-gym-accent hover:bg-gym-accentHover text-white rounded-lg text-xs font-600 flex items-center gap-1.5 transition-colors"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Nuevo Cliente</button>
+    </div>
+    <div class="flex gap-2">
+      <input id="client-search" type="text" placeholder="Buscar cliente..." class="flex-1 px-3 py-2 rounded-lg text-xs" onkeyup="filterClients()">
+    </div>
+    <div id="client-form-area"></div>
+    <div id="client-list" class="space-y-2">
+      ${clients.length===0?'<div class="text-center py-12 text-gym-muted"><i data-lucide="users" class="w-10 h-10 mx-auto mb-2 opacity-30"></i><p class="text-sm">No hay clientes registrados</p></div>':
+      clients.map(c => clientCard(c)).join('')}
+    </div>
+  </div>`;
+}
+
+function clientCard(c) {
+  const initials = (c.name||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  
+  // Lógica de fechas
+  const expDate = new Date((c.expiry || today()) + 'T12:00:00');
+  const now = new Date();
+  now.setHours(0,0,0,0);
+  const diffDays = Math.ceil((expDate - now) / (1000 * 60 * 60 * 24));
+  
+  let statusText = 'Activo';
+  let statusColor = 'bg-emerald-500/10 text-emerald-400';
+  
+  if (diffDays < 0) {
+    statusText = 'Adeuda';
+    statusColor = 'bg-red-500/10 text-red-400';
+  } else if (diffDays <= 7) {
+    statusText = 'Por vencer';
+    statusColor = 'bg-amber-500/10 text-amber-400';
+  }
+
+  return `<div class="bg-gym-surface rounded-xl p-3 border border-gym-border flex items-center gap-3 slide-in" data-client-name="${(c.name||'').toLowerCase()}">
+    <div class="w-10 h-10 rounded-full ${diffDays >= 0 ? 'bg-gym-accent/20 text-gym-accent' : 'bg-gray-700 text-gray-400'} flex items-center justify-center font-700 text-xs shrink-0">${initials}</div>
+    <div class="flex-1 min-w-0">
+      <p class="text-sm font-600 truncate">${c.name||'Sin nombre'}</p>
+      <p class="text-[10px] text-gym-muted">Inscrito: ${formatDate(c.date)} · ${c.membership||'Sin membresía'}</p>
+      <p class="text-[10px] font-600 ${diffDays < 0 ? 'text-red-400' : (diffDays <= 7 ? 'text-amber-400' : 'text-emerald-400')} mt-0.5">Vence: ${formatDate(c.expiry)}</p>
+    </div>
+    <span class="px-2 py-0.5 rounded-full text-[10px] font-600 ${statusColor} shrink-0">${statusText}</span>
+    <button onclick="deleteRecord('${c.__backendId}','client')" class="p-1.5 hover:bg-red-500/10 rounded-lg transition-colors shrink-0"><i data-lucide="trash-2" class="w-3.5 h-3.5 text-gym-muted hover:text-red-400"></i></button>
+  </div>`;
+}
+
+function filterClients() {
+  const q = (document.getElementById('client-search')?.value||'').toLowerCase();
+  document.querySelectorAll('[data-client-name]').forEach(el => { el.style.display = el.dataset.clientName.includes(q)?'':'none'; });
+}
+
+function showClientForm() {
+  const area = document.getElementById('client-form-area');
+  area.innerHTML = `
+  <div class="bg-gym-surface rounded-xl p-4 border border-gym-border fade-in">
+    <h3 class="text-sm font-600 mb-3">Nuevo Cliente</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div><label for="cf-name" class="text-[10px] text-gym-muted">Nombre completo</label><input id="cf-name" class="w-full px-3 py-2 rounded-lg text-xs mt-1"></div>
+      <div><label for="cf-phone" class="text-[10px] text-gym-muted">Teléfono</label><input id="cf-phone" class="w-full px-3 py-2 rounded-lg text-xs mt-1"></div>
+      <div><label for="cf-email" class="text-[10px] text-gym-muted">Email</label><input id="cf-email" type="email" class="w-full px-3 py-2 rounded-lg text-xs mt-1"></div>
+      <div><label for="cf-membership" class="text-[10px] text-gym-muted">Membresía</label><select id="cf-membership" class="w-full px-3 py-2 rounded-lg text-xs mt-1"><option value="Diario">Diario</option><option value="Semanal">Semanal</option><option value="Mensual" selected>Mensual</option><option value="Personalizado">Personalizado</option></select></div>
+      
+      <div><label for="cf-date" class="text-[10px] text-gym-muted">Fecha de Inscripción</label><input id="cf-date" type="date" value="${today()}" class="w-full px-3 py-2 rounded-lg text-xs mt-1" style="color-scheme: dark;"></div>
+      
+      <div class="border border-gym-accent/30 bg-gym-accent/5 p-2.5 rounded-lg col-span-1 sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1">
+         <div class="col-span-1 sm:col-span-2 mb-[-8px]"><span class="text-[10px] font-700 text-gym-accent uppercase tracking-wider">Primer Pago (Opcional)</span></div>
+         <div><label for="cf-amount" class="text-[10px] text-gym-muted">Monto Recibido ($)</label><input id="cf-amount" type="number" placeholder="Ej: 500" class="w-full px-3 py-2 rounded-lg text-xs mt-1 border-gym-accent/50 focus:border-gym-accent"></div>
+         <div><label for="cf-method" class="text-[10px] text-gym-muted">Método de Pago</label><select id="cf-method" class="w-full px-3 py-2 rounded-lg text-xs mt-1 border-gym-accent/50 focus:border-gym-accent"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option></select></div>
+      </div>
+    </div>
+    
+    <div class="flex gap-2 mt-4">
+      <button onclick="saveClient()" class="px-4 py-2 bg-gym-accent hover:bg-gym-accentHover text-white rounded-lg text-xs font-600 transition-colors">Guardar e Inscribir</button>
+      <button onclick="document.getElementById('client-form-area').innerHTML=''" class="px-4 py-2 bg-gym-border text-gym-muted rounded-lg text-xs font-600 hover:bg-gym-border/80 transition-colors">Cancelar</button>
+    </div>
+  </div>`;
+  if(window.lucide) lucide.createIcons();
+}
+
+async function saveClient() {
+  const name = document.getElementById('cf-name').value.trim();
+  if(!name) { toast('Ingresa el nombre','error'); return; }
+  
+  const membership = document.getElementById('cf-membership').value;
+  const inscriptionDateStr = document.getElementById('cf-date').value || today();
+  
+  const insDate = new Date(inscriptionDateStr + 'T12:00:00');
+  
+  const expiry = new Date(insDate);
+  if(membership === 'Mensual') { expiry.setMonth(expiry.getMonth() + 1); } 
+  else if(membership === 'Semanal') { expiry.setDate(expiry.getDate() + 7); } 
+  else if(membership === 'Diario') { expiry.setDate(expiry.getDate() + 1); }
+
+  const clientData = {
+    type:'client', name, phone:document.getElementById('cf-phone').value.trim(), email:document.getElementById('cf-email').value.trim(), 
+    membership, status:'active', date: inscriptionDateStr, expiry: expiry.toISOString().split('T')[0], 
+    amount:0, method:'', role:'', schedule:'', checkin_date:'', notes:'', category:''
+  };
+
+  const r = await window.dataSdk.create(clientData);
+  if(r.isOk) { 
+    toast('Cliente registrado'); 
+    
+    const firstPaymentAmount = parseFloat(document.getElementById('cf-amount').value) || 0;
+    if(firstPaymentAmount > 0) {
+       const payMethod = document.getElementById('cf-method').value;
+       await window.dataSdk.create({
+          type:'payment', name: name, amount: firstPaymentAmount, method: payMethod, membership: membership,
+          date: today(), status:'paid', phone:'',email:'',expiry:'',role:'',schedule:'',checkin_date:'',notes:'Inscripción / Primer Pago',category:''
+       });
+       toast('Primer pago registrado en caja');
+    }
+    document.getElementById('client-form-area').innerHTML=''; 
+  } else { toast('Error al guardar','error'); }
+}
+
+// ===== PAYMENTS Y CALENDARIO =====
+function renderPayments() {
+  const payments = getRecords('payment');
+  const clients = getRecords('client');
+  const isAdmin = currentUser && currentUser.role === 'admin';
+  
+  // --- LÓGICA DE CÁLCULOS DE HOY ---
+  const todayStr = today();
+  const todayDate = new Date();
+  todayDate.setHours(0, 0, 0, 0); 
+
+  // 1. Pagos e Ingresos de HOY (Para que veas el cambio inmediato al cobrar)
+  const todayPayments = payments.filter(p => p.date === todayStr);
+  const todayIncome = todayPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+
+  // 2. Clientes con Adeudo
+  const overdueCount = clients.filter(c => {
+    if (!c.expiry) return false;
+    const exp = new Date(c.expiry + 'T12:00:00');
+    return exp < todayDate;
+  }).length;
+
+  // 3. Próximos a vencer (Faltan entre 0 y 3 días)
+  const upcomingExpCount = clients.filter(c => {
+    if (!c.expiry) return false;
+    const exp = new Date(c.expiry + 'T12:00:00');
+    const diffTime = exp - todayDate;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays >= 0 && diffDays <= 3; 
+  }).length;
+
+  // --- SECCIÓN CONDICIONAL: DETALLES DEL DÍA SELECCIONADO ---
+  let dayDetailsSection = '';
+  if (selectedCalDate) {
+    const dayDues = clients.filter(c => c.expiry === selectedCalDate);
+    const dayPaymentsFiltered = payments.filter(p => p.date === selectedCalDate);
+    const daySales = getRecords('sale').filter(s => s.date === selectedCalDate);
+    const dayIncomeTotal = dayPaymentsFiltered.reduce((s,p)=>s+Number(p.amount||0),0) + daySales.reduce((s,p)=>s+(Number(p.amount)||0),0);
+
+    dayDetailsSection = `
+    <div class="mt-4 p-4 bg-gym-surface rounded-2xl border border-gym-accent/50 shadow-lg shadow-gym-accent/5 slide-in">
+      <div class="flex justify-between items-center mb-4 border-b border-gym-border pb-2">
+        <h3 class="text-sm font-800 text-gym-text flex items-center gap-2"><i data-lucide="calendar-search" class="w-4 h-4 text-gym-accent"></i> Detalles del ${formatDate(selectedCalDate)}</h3>
+        <button onclick="selectDay('${selectedCalDate}')" class="text-gym-muted hover:text-white p-1 rounded hover:bg-gym-border"><i data-lucide="x" class="w-4 h-4"></i></button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <h4 class="text-[10px] font-700 text-gym-muted uppercase tracking-wider mb-2">Vencimientos (${dayDues.length})</h4>
+          <div class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+            ${dayDues.length === 0 ? '<p class="text-xs text-gym-muted">Sin vencimientos.</p>' : 
+              dayDues.map(c => `<div class="flex justify-between items-center p-2 bg-gym-bg rounded border border-gym-border text-xs"><span class="truncate pr-2">${c.name}</span><button onclick="quickPay('${c.name}')" class="text-[10px] font-700 px-2 py-1 bg-gym-accent/10 text-gym-accent rounded hover:bg-gym-accent hover:text-white transition-colors shrink-0">Cobrar</button></div>`).join('')}
+          </div>
+        </div>
+        <div>
+          <h4 class="text-[10px] font-700 text-gym-muted uppercase tracking-wider mb-2">Ingresos (${formatMoney(dayIncomeTotal)})</h4>
+          <div class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+            ${dayPaymentsFiltered.length === 0 && daySales.length === 0 ? '<p class="text-xs text-gym-muted">No hay ingresos este día.</p>' : 
+              [...dayPaymentsFiltered, ...daySales].map(tx => `
+              <div class="flex justify-between items-center p-2 bg-gym-bg rounded border border-gym-border text-xs">
+                <div class="min-w-0"><p class="truncate font-600">${tx.name || tx.ticket_number}</p><p class="text-[9px] text-gym-muted">${tx.type === 'sale' ? 'Venta POS' : 'Mensualidad'}</p></div>
+                <div class="flex items-center gap-3 shrink-0">
+                  <span class="font-700 text-emerald-400">${formatMoney(tx.amount)}</span>
+                  ${isAdmin ? `<button onclick="${tx.type === 'sale' ? `deleteSaleRecord('${tx.__backendId}')` : `deletePaymentRecord('${tx.__backendId}')`}" class="text-gym-muted hover:text-red-400"><i data-lucide="trash-2" class="w-3 h-3"></i></button>` : ''}
+                </div>
+              </div>`).join('')}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // --- SECCIÓN FIJA: HISTORIAL DE COBROS RECIENTES ---
+  const historySection = `
+  <div class="space-y-2 mt-6">
+    <h3 class="text-xs font-700 text-gym-muted px-1 uppercase tracking-wider">Últimos Cobros Realizados</h3>
+    ${payments.slice().reverse().slice(0,15).map(p=>`
+      <div class="bg-gym-surface/50 rounded-xl p-3 border border-gym-border flex items-center justify-between slide-in">
+        <div class="flex items-center gap-3">
+           <div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0"><i data-lucide="receipt" class="w-4 h-4 text-emerald-500"></i></div>
+           <div class="min-w-0">
+             <p class="text-xs font-600 truncate">${p.name}</p>
+             <p class="text-[10px] text-gym-muted">${formatDate(p.date)} · ${p.membership}</p>
+           </div>
+        </div>
+        <div class="text-right shrink-0">
+            <span class="text-sm font-800 text-emerald-400 block">${formatMoney(p.amount)}</span>
+            <div class="flex gap-2 justify-end mt-1">
+              <button onclick="reprintPaymentTicket('${p.__backendId}')" class="text-[10px] font-600 text-blue-400 hover:underline">Ticket</button>
+              ${isAdmin ? `<button onclick="deletePaymentRecord('${p.__backendId}')" class="text-[10px] font-600 text-red-400 hover:underline">Revertir</button>` : ''}
+            </div>
+        </div>
+      </div>`).join('')}
+      ${payments.length === 0 ? '<div class="text-center py-6 text-gym-muted text-sm">No hay cobros recientes</div>' : ''}
+  </div>`;
+
+  return `
+  <div class="fade-in space-y-5">
+    <div class="flex items-center justify-between">
+      <h1 class="text-xl font-800">Mensualidades</h1>
+      <button onclick="showPaymentForm()" class="px-3 py-2 bg-gym-accent hover:bg-gym-accentHover text-white rounded-lg text-xs font-600 transition-colors shadow-lg shadow-gym-accent/20"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Registrar Pago</button>
+    </div>
+    
+    <div id="payment-form-area"></div>
+
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      ${statCard('credit-card', 'Cobros Hoy', todayPayments.length, 'bg-blue-500/10', 'text-blue-400')}
+      ${statCard('dollar-sign', 'Ingresos Hoy', formatMoney(todayIncome), 'bg-emerald-500/10', 'text-emerald-400')}
+      ${statCard('alert-circle', 'Adeudos', overdueCount, 'bg-red-500/10', 'text-red-400')}
+      ${statCard('clock', 'Próximos (3 días)', upcomingExpCount, 'bg-amber-500/10', 'text-amber-400')}
+    </div>
+
+    <div class="bg-gym-surface rounded-2xl border border-gym-border overflow-hidden mt-2">
+      <div class="p-4 border-b border-gym-border flex items-center justify-between bg-gym-bg/50">
+        <h3 class="font-700 text-sm flex items-center gap-2"><i data-lucide="calendar" class="w-4 h-4 text-gym-accent"></i> Vencimientos de ${calendarDate.toLocaleDateString('es-MX', {month:'long', year:'numeric'})}</h3>
+        <div class="flex gap-1">
+          <button onclick="changeCal(-1)" class="p-1.5 hover:bg-gym-border rounded-lg transition-colors"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+          <button onclick="calendarDate = new Date(); selectedCalDate = null; renderCurrentSection();" class="px-2 py-1 text-[10px] font-700 bg-gym-border rounded-lg uppercase hover:bg-gym-accent hover:text-white transition-all">Hoy</button>
+          <button onclick="changeCal(1)" class="p-1.5 hover:bg-gym-border rounded-lg transition-colors"><i data-lucide="chevron-right" class="w-4 h-4"></i></button>
+        </div>
+      </div>
+      <div class="grid grid-cols-7 border-b border-gym-border bg-gym-bg/30">
+        ${['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'].map(d=>`<div class="py-2 text-center text-[10px] font-800 text-gym-muted uppercase tracking-widest">${d}</div>`).join('')}
+      </div>
+      <div class="grid grid-cols-7">
+        ${generateCalendarDays(clients)}
+      </div>
+    </div>
+    
+    ${dayDetailsSection}
+    ${historySection}
+  </div>`;
+}
+function generateCalendarDays(clients) {
+  const year = calendarDate.getFullYear();
+  const month = calendarDate.getMonth();
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const todayStr = today();
+  
+  let html = '';
+  
+  // Días vacíos del mes anterior
+  for (let i = 0; i < firstDay; i++) {
+    html += `<div class="cal-day border-r border-b border-gym-border opacity-20"></div>`;
+  }
+  
+  // Días del mes actual
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = year + '-' + String(month+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+    const isToday = dateStr === todayStr;
+    const isSelected = dateStr === selectedCalDate;
+    
+    // Filtramos los clientes que vencen este día
+    const dues = clients.filter(c => c.expiry === dateStr);
+    const hasDues = dues.length > 0;
+    
+    html += `
+    <div onclick="selectDay('` + dateStr + `')" 
+         class="cal-day border-r border-b border-gym-border p-1 cursor-pointer hover:bg-gym-surface/80 transition-colors ` + (isToday ? 'cal-today' : '') + ` ` + (isSelected ? 'ring-2 ring-inset ring-gym-accent bg-gym-accent/10' : '') + `">
+      
+      <div class="flex justify-between items-start">
+        <span class="text-[10px] font-700 ` + (isToday ? 'text-gym-accent' : 'text-gym-muted') + `">` + d + `</span>
+        
+        ` + (hasDues ? `<div class="w-1.5 h-1.5 rounded-full bg-gym-accent glow shadow-[0_0_8px_rgba(244,63,94,0.6)]"></div>` : '') + `
+      </div>
+
+      <div class="mt-1 space-y-1">
+        ` + dues.map(c => {
+          const isVencido = new Date(c.expiry + 'T12:00:00') < new Date().setHours(0,0,0,0);
+          return `<div onclick="event.stopPropagation(); quickPay('` + c.name + `')" 
+                       class="text-[9px] px-1 py-0.5 rounded bg-gym-bg border border-gym-border cursor-pointer hover:border-gym-accent truncate flex items-center gap-1">
+            <div class="w-1 h-1 rounded-full ` + (isVencido ? 'bg-red-500' : 'bg-emerald-500') + ` shrink-0"></div>
+            <span class="truncate">` + c.name.split(' ')[0] + `</span>
+          </div>`;
+        }).join('') + `
+      </div>
+    </div>`;
+  }
+  return html;
+}
+
+
+function selectDay(dateStr) {
+  // Si hace clic en el mismo día, lo deselecciona; si no, lo marca como seleccionado
+  selectedCalDate = (selectedCalDate === dateStr) ? null : dateStr;
+  renderCurrentSection();
+}
+// Función para navegar entre meses
+function changeCal(offset) {
+    // Creamos una nueva fecha basada en la actual para evitar errores de referencia
+    const newDate = new Date(calendarDate.setMonth(calendarDate.getMonth() + offset));
+    calendarDate = newDate;
+    
+    // Limpiamos el día seleccionado al cambiar de mes para evitar confusiones visuales
+    selectedCalDate = null; 
+    
+    renderCurrentSection();
+}
+
+function quickPay(name) {
+    showPaymentForm();
+    document.getElementById('pf-client').value = name;
+    window.updateClientPreview();
+}
+
+function showPaymentForm() {
+  const clients = getRecords('client').sort((a,b) => (a.name||'').localeCompare(b.name||''));
+  const opts = clients.map(c=>`<option value="${c.name}">${c.name}</option>`).join('');
+  const area = document.getElementById('payment-form-area');
+  area.innerHTML = `
+  <div class="bg-gym-surface rounded-xl p-4 border border-gym-accent/30 fade-in mb-4 shadow-2xl shadow-gym-accent/5">
+    <h3 class="text-sm font-600 mb-3 flex items-center gap-2"><i data-lucide="credit-card" class="w-4 h-4 text-gym-accent"></i> Cobrar Mensualidad</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div class="space-y-3">
+        <select id="pf-client" class="w-full px-3 py-2.5 rounded-lg text-xs" onchange="updateClientPreview()">
+          <option value="">Seleccione Cliente...</option>${opts}
+        </select>
+        <div id="client-preview"></div>
+      </div>
+      <div class="space-y-3">
+        <div class="grid grid-cols-2 gap-2">
+          <select id="pf-membership" class="w-full px-3 py-2.5 rounded-lg text-xs"><option>Diario</option><option>Semanal</option><option selected>Mensual</option></select>
+          <input id="pf-amount" type="number" class="w-full px-3 py-2.5 rounded-lg text-xs" value="500">
+        </div>
+        <select id="pf-method" class="w-full px-3 py-2.5 rounded-lg text-xs"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option></select>
+      </div>
+    </div>
+    <div class="flex gap-2 mt-4 pt-3 border-t border-gym-border">
+      <button onclick="savePayment()" class="px-4 py-2 bg-gym-accent text-white rounded-lg text-xs font-700 transition-all hover:scale-105 flex items-center justify-center"><i data-lucide="check" class="w-3.5 h-3.5 mr-1"></i> COBRAR Y GENERAR TICKET</button>
+      <button onclick="document.getElementById('payment-form-area').innerHTML=''" class="px-4 py-2 bg-gym-border text-gym-muted rounded-lg text-xs font-600">CANCELAR</button>
+    </div>
+  </div>`;
+  if(window.lucide) lucide.createIcons();
+}
+
+window.updateClientPreview = function() {
+  const name = document.getElementById('pf-client').value;
+  const prev = document.getElementById('client-preview');
+  if(!name) { prev.innerHTML=''; return; }
+  
+  const client = getRecords('client').find(c => c.name === name);
+  if(!client) return;
+
+  const expDate = new Date((client.expiry || today()) + 'T12:00:00');
+  const now = new Date();
+  now.setHours(0,0,0,0);
+  const diffDays = Math.ceil((expDate - now) / (1000 * 60 * 60 * 24));
+  
+  let statusText = 'Activo';
+  let colorClass = 'text-emerald-400';
+  let bgClass = 'bg-emerald-500/10 border-emerald-500/20';
+  let dotClass = 'bg-emerald-500';
+
+  if(diffDays < 0) {
+      statusText = 'Adeuda';
+      colorClass = 'text-red-400';
+      bgClass = 'bg-red-500/10 border-red-500/20';
+      dotClass = 'bg-red-500';
+  } else if (diffDays <= 7) {
+      statusText = 'Por vencer';
+      colorClass = 'text-amber-400';
+      bgClass = 'bg-amber-500/10 border-amber-500/20';
+      dotClass = 'bg-amber-500';
+  }
+
+  prev.innerHTML = `<div class="p-3 rounded-lg border ${bgClass} text-[10px]">
+    <div class="flex items-center gap-2 mb-1">
+      <div class="w-2 h-2 rounded-full ${dotClass}"></div>
+      <p class="font-700 ${colorClass} uppercase">${statusText}</p>
+    </div>
+    <p class="text-gym-text">Su membresía ${diffDays < 0 ? 'venció' : 'vence'} el: <strong>${formatDate(client.expiry)}</strong></p>
+    <p class="text-gym-muted mt-1">El nuevo mes se sumará ${diffDays >= 0 ? 'a partir de su vencimiento' : 'a partir de hoy'}.</p>
+  </div>`;
+};
+
+async function savePayment() {
+  const name = document.getElementById('pf-client').value;
+  const amount = parseFloat(document.getElementById('pf-amount').value)||0;
+  if(!name){toast('Selecciona un cliente','error');return;}
+  
+  const membership = document.getElementById('pf-membership').value;
+  const client = allRecords.find(r=>r.type==='client'&&r.name===name);
+  let baseDate = new Date();
+  
+  if(client && client.expiry) {
+      const currentExp = new Date(client.expiry + 'T12:00:00');
+      if(currentExp > baseDate) baseDate = currentExp;
+  }
+  
+  if(membership==='Mensual') baseDate.setMonth(baseDate.getMonth()+1);
+  else if(membership==='Semanal') baseDate.setDate(baseDate.getDate()+7);
+  else baseDate.setDate(baseDate.getDate()+1);
+  
+  await window.dataSdk.update({...client, expiry:baseDate.toISOString().split('T')[0], status:'active'});
+  
+  const paymentRecord = {
+    type:'payment', name, amount, method:document.getElementById('pf-method').value, membership, 
+    date:today(), status:'paid', phone:'',email:'',expiry:'',role:'',schedule:'',checkin_date:'',
+    notes:`Válido hasta ${formatDate(baseDate.toISOString().split('T')[0])}`, category:''
+  };
+
+  const r = await window.dataSdk.create(paymentRecord);
+  if(r.isOk) { 
+    toast('Pago exitoso'); 
+    showPaymentTicket(paymentRecord, baseDate.toISOString().split('T')[0]); 
+  } else { toast('Error','error'); }
+}
+
+// Busca esta función y añádele la primera línea:
+function showPaymentTicket(payment, newExpiry) {
+  currentSection = 'ticket'; // <-- EVITA QUE FIREBASE BORRE EL TICKET AL RECARGAR
+  
+  const ticketHTML = `
+  <div class="fade-in max-w-sm mx-auto">
+    <div id="printable-ticket" class="bg-white text-black p-6 rounded-lg shadow-lg font-mono text-sm mx-auto w-full max-w-[320px]">
+      <div class="text-center font-bold text-xl mb-1">${window.elementSdk ? window.elementSdk.config.gym_name : 'GymPro'}</div>
+      <div class="text-center text-xs text-gray-600 mb-4">COMPROBANTE DE PAGO</div>
+      <div class="text-xs mb-4 border-b border-dashed border-gray-400 pb-2">
+        <div class="flex justify-between"><span>Fecha:</span> <span>${formatDate(payment.date)} ${new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}</span></div>
+        <div class="flex justify-between"><span>Cajero:</span> <span>${currentUser ? currentUser.username : 'Sistema'}</span></div>
+      </div>
+      <div class="text-center mb-4">
+        <p class="text-[10px] text-gray-500 uppercase">Cliente</p>
+        <p class="font-bold text-sm">${payment.name}</p>
+      </div>
+      <table class="w-full text-xs mb-4">
+        <thead><tr class="border-b border-dashed border-gray-400"><th class="text-left py-1">CONCEPTO</th><th class="text-right py-1">IMPORTE</th></tr></thead>
+        <tbody><tr><td class="py-2 pr-2 leading-tight">Plan ${payment.membership}</td><td class="text-right py-2 align-top font-bold">${formatMoney(payment.amount)}</td></tr></tbody>
+      </table>
+      <div class="text-xs border-t border-dashed border-gray-400 pt-2 space-y-1">
+        <div class="flex justify-between"><span>Pago en:</span><span>${payment.method}</span></div>
+        <div class="flex justify-between font-bold text-base mt-2"><span>TOTAL:</span><span>${formatMoney(payment.amount)}</span></div>
+      </div>
+      <div class="mt-4 p-2 border border-black text-center">
+        <p class="text-[10px] uppercase">Próximo Vencimiento</p>
+        <p class="font-bold text-sm">${formatDate(newExpiry)}</p>
+      </div>
+      <div class="text-center text-[10px] mt-6 pt-2 border-t border-dashed border-gray-400 text-gray-600">
+        <p>Conserve este recibo.</p><p>¡Gracias por tu preferencia!</p>
+      </div>
+    </div>
+    <div class="flex gap-2 mt-6 no-print max-w-[320px] mx-auto">
+      <button onclick="printTicket()" class="flex-1 px-4 py-3 bg-gym-accent hover:bg-gym-accentHover text-white rounded-lg text-sm font-600 transition-colors shadow-lg shadow-gym-accent/20"><i data-lucide="printer" class="w-4 h-4 inline mr-1"></i> Imprimir</button>
+      <button onclick="navigateTo('payments')" class="flex-1 px-4 py-3 bg-gym-surface border border-gym-border text-gym-text rounded-lg text-sm font-600 hover:bg-gym-border/50 transition-colors"><i data-lucide="arrow-left" class="w-4 h-4 inline mr-1"></i> Volver</button>
+    </div>
+  </div>`;
+  document.getElementById('content').innerHTML = ticketHTML;
+  if(window.lucide) lucide.createIcons();
+}
+
+function reprintPaymentTicket(backendId) {
+  const p = allRecords.find(r => r.__backendId === backendId);
+  if(!p) return;
+  let exp = p.date;
+  if(p.notes && p.notes.includes('Válido hasta')) exp = p.notes.replace('Válido hasta ', '').trim();
+  showPaymentTicket(p, exp);
+}
+
+// Revertir pago accidental (Solo Admin)
+async function deletePaymentRecord(backendId) {
+  const payment = allRecords.find(r => r.__backendId === backendId);
+  if(!payment) return;
+
+  const btn = window.event.currentTarget || window.event.srcElement;
+  if(!btn.dataset.confirming) {
+    btn.dataset.confirming = 'true';
+    btn.innerHTML = '<span class="text-red-500 font-800">¿Anular?</span>';
+    setTimeout(() => { 
+      if(btn.dataset.confirming) { 
+        delete btn.dataset.confirming; 
+        btn.innerHTML = '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i>'; 
+        if(window.lucide) lucide.createIcons();
+      }
+    }, 3000);
+    return;
+  }
+  delete btn.dataset.confirming;
+
+  // 1. Revertir los días de vigencia del cliente
+  const client = allRecords.find(r => r.type === 'client' && r.name === payment.name);
+  if(client && client.expiry) {
+    const expDate = new Date(client.expiry + 'T12:00:00');
+    
+    // Restamos el tiempo
+    if(payment.membership === 'Mensual') {
+        expDate.setMonth(expDate.getMonth() - 1);
+    } else if(payment.membership === 'Semanal') {
+        expDate.setDate(expDate.getDate() - 7);
+    } else if(payment.membership === 'Diario') {
+        expDate.setDate(expDate.getDate() - 1);
+    }
+    
+    const newExpiryStr = expDate.toISOString().split('T')[0];
+    const todayStr = today();
+    
+    // Determinamos el estatus base
+    const isNowActive = newExpiryStr >= todayStr;
+    
+    await window.dataSdk.update({
+        ...client, 
+        expiry: newExpiryStr,
+        status: isNowActive ? 'active' : 'inactive'
+    });
+  }
+
+  // 2. Eliminar el pago
+  const r = await window.dataSdk.delete(payment);
+  if(r.isOk) {
+      toast('Cobro anulado y vigencia revertida');
+  } else {
+      toast('Error al anular cobro', 'error');
+  }
+}
+
+// ===== CHECK-IN =====
+function renderCheckin() {
+  const todayCheckins = getRecords('checkin').filter(c=>c.date===today());
+  const clients = getRecords('client').filter(c=>c.status==='active');
+  return `
+  <div class="fade-in space-y-4">
+    <div class="flex items-center justify-between flex-wrap gap-2">
+      <h1 class="text-xl font-800">Check-in</h1>
+      <span class="px-3 py-1 bg-gym-accent/10 text-gym-accent rounded-full text-xs font-600">${todayCheckins.length} entradas hoy</span>
+    </div>
+    <div class="flex gap-2">
+      <input id="checkin-search" type="text" placeholder="Nombre del cliente..." class="flex-1 px-3 py-2 rounded-lg text-xs" list="checkin-clients">
+      <datalist id="checkin-clients">${clients.map(c=>`<option value="${c.name}">`).join('')}</datalist>
+      <button onclick="doCheckin()" class="px-4 py-2 bg-gym-accent hover:bg-gym-accentHover text-white rounded-lg text-xs font-600 transition-colors flex items-center gap-1.5"><i data-lucide="log-in" class="w-3.5 h-3.5"></i> Registrar</button>
+    </div>
+    <div class="space-y-2">
+      <h3 class="text-xs font-600 text-gym-muted">Entradas de hoy</h3>
+      ${todayCheckins.length===0?'<p class="text-center py-6 text-gym-muted text-xs">Sin entradas</p>':
+      todayCheckins.map(c=>`<div class="bg-gym-surface rounded-lg p-2.5 border border-gym-border flex items-center gap-2.5 slide-in"><div class="w-7 h-7 rounded-full bg-emerald-500/10 flex items-center justify-center"><i data-lucide="check" class="w-3.5 h-3.5 text-emerald-400"></i></div><span class="text-xs font-500">${c.name}</span><span class="text-[10px] text-gym-muted ml-auto">${c.checkin_date?new Date(c.checkin_date).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):''}</span></div>`).join('')}
+    </div>
+  </div>`;
+}
+
+async function doCheckin() {
+  const name = document.getElementById('checkin-search').value.trim();
+  if(!name){toast('Ingresa el nombre','error');return;}
+  const r = await window.dataSdk.create({type:'checkin',name,date:today(),checkin_date:new Date().toISOString(),phone:'',email:'',membership:'',status:'',amount:0,method:'',expiry:'',role:'',schedule:'',notes:'',category:''});
+  if(r.isOk){toast(`Check-in: ${name}`);document.getElementById('checkin-search').value='';}
+  else toast('Error','error');
+}
+
+// ===== FINANCE =====
+function renderFinance() {
+  const transactions = [...getRecords('payment'), ...getRecords('sale')];
+  const now = new Date();
+  const todayTx = transactions.filter(p=>p.date===today());
+  const weekTx = transactions.filter(p=>{if(!p.date)return false;const d=new Date(p.date + 'T12:00:00');const diff=(now-d)/(1000*60*60*24);return diff<=7;});
+  const monthTx = transactions.filter(p=>p.date&&p.date.startsWith(now.toISOString().slice(0,7)));
+  
+  const methods = {};
+  transactions.forEach(p=>{const m=p.method||'Otro';methods[m]=(methods[m]||0)+(p.amount||0);});
+  const memberships = {};
+  getRecords('payment').forEach(p=>{const m=p.membership||'Otro';memberships[m]=(memberships[m]||0)+1;});
+
+  return `
+  <div class="fade-in space-y-4">
+    <h1 class="text-xl font-800">Finanzas y Reportes globales</h1>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      ${statCard('calendar','Hoy',formatMoney(todayTx.reduce((s,p)=>s+(p.amount||0),0)),'bg-emerald-500/10','text-emerald-400')}
+      ${statCard('calendar','Semana',formatMoney(weekTx.reduce((s,p)=>s+(p.amount||0),0)),'bg-blue-500/10','text-blue-400')}
+      ${statCard('calendar','Mes',formatMoney(monthTx.reduce((s,p)=>s+(p.amount||0),0)),'bg-violet-500/10','text-violet-400')}
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="bg-gym-surface rounded-xl p-4 border border-gym-border">
+        <h3 class="text-sm font-600 mb-3">Ingresos por método (Pagos + POS)</h3>
+        <div class="space-y-2">
+          ${Object.entries(methods).map(([m,v])=>{const pct=Math.round(v/Math.max(Object.values(methods).reduce((a,b)=>a+b,0),1)*100);return`<div><div class="flex justify-between text-xs mb-1"><span>${m}</span><span class="text-gym-muted">${formatMoney(v)} (${pct}%)</span></div><div class="h-2 bg-gym-border rounded-full overflow-hidden"><div class="h-full bg-gym-accent rounded-full" style="width:${pct}%"></div></div></div>`;}).join('')}
+          ${Object.keys(methods).length===0?'<p class="text-xs text-gym-muted text-center py-4">Sin datos</p>':''}
+        </div>
+      </div>
+      <div class="bg-gym-surface rounded-xl p-4 border border-gym-border">
+        <h3 class="text-sm font-600 mb-3">Membresías más vendidas</h3>
+        <div class="space-y-2">
+          ${Object.entries(memberships).sort((a,b)=>b[1]-a[1]).map(([m,c])=>`<div class="flex items-center justify-between p-2 bg-gym-bg rounded-lg"><span class="text-xs font-500">${m}</span><span class="text-xs font-700 text-gym-accent">${c}</span></div>`).join('')}
+          ${Object.keys(memberships).length===0?'<p class="text-xs text-gym-muted text-center py-4">Sin datos</p>':''}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ===== PRODUCTS =====
+function renderProducts() {
+  const products = getRecords('product');
+  return `
+  <div class="fade-in space-y-4">
+    <div class="flex items-center justify-between flex-wrap gap-2">
+      <h1 class="text-xl font-800">Productos e Inventario</h1>
+      <button onclick="showProductForm()" class="px-3 py-2 bg-gym-accent hover:bg-gym-accentHover text-white rounded-lg text-xs font-600 flex items-center gap-1.5 transition-colors"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Agregar</button>
+    </div>
+    <div id="product-form-area"></div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      ${products.length===0?'<div class="col-span-full text-center py-8 text-gym-muted text-sm">Sin productos</div>':
+      products.map(p=>`<div class="bg-gym-surface rounded-xl p-3 border border-gym-border slide-in">
+        <div class="flex items-center justify-between mb-2"><span class="text-xs font-600">${p.name}</span><button onclick="deleteRecord('${p.__backendId}','product')" class="p-1 hover:bg-red-500/10 rounded"><i data-lucide="trash-2" class="w-3 h-3 text-gym-muted"></i></button></div>
+        <p class="text-[10px] text-gym-muted">${p.category||'General'} · Stock: <span class="${(p.amount||0)===0?'text-red-400 font-700':''}">${p.amount||0}</span></p>
+        <p class="text-sm font-700 text-emerald-400 mt-1">${formatMoney(p.notes)}</p>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function showProductForm() {
+  document.getElementById('product-form-area').innerHTML = `
+  <div class="bg-gym-surface rounded-xl p-4 border border-gym-border fade-in">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div><label for="prf-name" class="text-[10px] text-gym-muted">Producto</label><input id="prf-name" class="w-full px-3 py-2 rounded-lg text-xs mt-1"></div>
+      <div><label for="prf-cat" class="text-[10px] text-gym-muted">Categoría</label><select id="prf-cat" class="w-full px-3 py-2 rounded-lg text-xs mt-1"><option>Suplemento</option><option>Bebida</option><option>Accesorio</option><option>Otro</option></select></div>
+      <div><label for="prf-stock" class="text-[10px] text-gym-muted">Stock</label><input id="prf-stock" type="number" value="10" class="w-full px-3 py-2 rounded-lg text-xs mt-1"></div>
+      <div><label for="prf-price" class="text-[10px] text-gym-muted">Precio ($)</label><input id="prf-price" type="number" value="50" class="w-full px-3 py-2 rounded-lg text-xs mt-1"></div>
+    </div>
+    <div class="flex gap-2 mt-4">
+      <button onclick="saveProduct()" class="px-4 py-2 bg-gym-accent hover:bg-gym-accentHover text-white rounded-lg text-xs font-600 transition-colors">Guardar</button>
+      <button onclick="document.getElementById('product-form-area').innerHTML=''" class="px-4 py-2 bg-gym-border text-gym-muted rounded-lg text-xs font-600">Cancelar</button>
+    </div>
+  </div>`;
+  if(window.lucide) lucide.createIcons();
+}
+
+async function saveProduct() {
+  const name = document.getElementById('prf-name').value.trim();
+  if(!name){toast('Ingresa el nombre','error');return;}
+  const r = await window.dataSdk.create({type:'product',name,category:document.getElementById('prf-cat').value,amount:parseInt(document.getElementById('prf-stock').value)||0,notes:document.getElementById('prf-price').value,phone:'',email:'',membership:'',status:'active',method:'',date:today(),expiry:'',role:'',schedule:'',checkin_date:''});
+  if(r.isOk){toast('Producto agregado');document.getElementById('product-form-area').innerHTML='';}
+  else toast('Error','error');
+}
+
+// ===== ACCESS LOG =====
+function renderAccessLog() {
+  const logs = getRecords('log');
+  return `
+  <div class="fade-in space-y-4">
+    <h1 class="text-xl font-800">Bitácora de Acceso</h1>
+    <div class="space-y-2">
+      ${logs.length===0?'<p class="text-center py-8 text-gym-muted text-sm">Sin registros</p>':
+      logs.slice().reverse().slice(0,50).map(l=>`<div class="bg-gym-surface rounded-lg p-2.5 border border-gym-border flex items-center gap-2.5 slide-in"><div class="w-7 h-7 rounded-full bg-blue-500/10 flex items-center justify-center"><i data-lucide="shield" class="w-3.5 h-3.5 text-blue-400"></i></div><div class="flex-1"><span class="text-xs font-500">${l.name}</span><span class="text-[10px] text-gym-muted ml-2">${l.role||''}</span></div><span class="text-[10px] text-gym-muted">${l.date?new Date(l.date).toLocaleString('es-MX',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):''}</span></div>`).join('')}
+    </div>
+  </div>`;
+}
+
+// ===== POS (PUNTO DE VENTA) =====
+let cartItems = [];
+
+function renderPOS() {
+  const products = getRecords('product');
+  const cartTotal = cartItems.reduce((s,i)=>s+(i.price*i.qty),0);
+  
+  return `
+  <div class="fade-in grid grid-cols-1 lg:grid-cols-3 gap-4 h-full">
+    <div class="lg:col-span-2 flex flex-col min-h-0">
+      <h1 class="text-xl font-800 mb-4">Punto de Venta</h1>
+      <div class="flex-1 overflow-y-auto space-y-2">
+        ${products.length===0?'<div class="text-center py-12 text-gym-muted text-sm"><i data-lucide="package" class="w-10 h-10 mx-auto mb-2 opacity-30"></i><p>No hay productos disponibles</p></div>':
+        products.map(p=>`
+          <div class="bg-gym-surface rounded-lg p-3 border border-gym-border flex items-center justify-between slide-in ${p.amount <= 0 ? 'opacity-50' : ''}">
+            <div class="flex-1"><p class="text-sm font-600">${p.name}</p><p class="text-[10px] text-gym-muted">${p.category||'General'} · Stock: <span class="${p.amount<=0?'text-red-400 font-700':''}">${p.amount||0}</span></p><p class="text-sm font-700 text-emerald-400 mt-1">${formatMoney(p.notes)}</p></div>
+            <button onclick="addToCart('${p.name}',${p.notes||0})" class="px-3 py-1.5 ${p.amount <= 0 ? 'bg-gym-border cursor-not-allowed' : 'bg-gym-accent hover:bg-gym-accentHover'} text-white rounded-lg text-xs font-600 transition-colors"><i data-lucide="plus" class="w-3 h-3"></i></button>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+    
+    <div class="lg:col-span-1 flex flex-col min-h-0 bg-gym-surface rounded-xl border border-gym-border p-4">
+      <h2 class="text-lg font-700 mb-4">Carrito</h2>
+      <div class="flex-1 overflow-y-auto space-y-2 mb-4">
+        ${cartItems.length===0?'<p class="text-center text-gym-muted text-xs py-6">Carrito vacío</p>':
+        cartItems.map((item,i)=>`
+          <div class="bg-gym-bg rounded-lg p-2 flex items-center justify-between gap-2 slide-in">
+            <div class="flex-1 min-w-0">
+              <p class="text-xs font-600 truncate">${item.name}</p>
+              <p class="text-[10px] text-gym-muted">${item.qty}x ${formatMoney(item.price)}</p>
+            </div>
+            <div class="flex items-center gap-1">
+              <button onclick="modifyCart(${i},-1)" class="p-1 hover:bg-gym-border rounded"><i data-lucide="minus" class="w-3 h-3"></i></button>
+              <button onclick="modifyCart(${i},1)" class="p-1 hover:bg-gym-border rounded"><i data-lucide="plus" class="w-3 h-3"></i></button>
+              <button onclick="removeFromCart(${i})" class="p-1 hover:bg-red-500/10 rounded"><i data-lucide="trash-2" class="w-3 h-3 text-red-400"></i></button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      
+      <div class="border-t border-gym-border pt-3 space-y-2">
+        <div class="flex justify-between text-xs">
+          <span class="text-gym-muted">Subtotal:</span>
+          <span>${formatMoney(cartTotal)}</span>
+        </div>
+        <div class="flex justify-between text-sm font-700">
+          <span>Total:</span>
+          <span class="text-gym-accent">${formatMoney(cartTotal)}</span>
+        </div>
+        <div class="flex gap-2 mt-4">
+          <button onclick="clearCart()" class="flex-1 px-3 py-2 bg-gym-border text-gym-muted rounded-lg text-xs font-600 hover:bg-gym-border/80 transition-colors"><i data-lucide="x" class="w-3 h-3 inline mr-1"></i> Limpiar</button>
+          <button onclick="proceedPayment()" class="flex-1 px-3 py-2 bg-gym-accent hover:bg-gym-accentHover text-white rounded-lg text-xs font-600 transition-colors"><i data-lucide="check" class="w-3 h-3 inline mr-1"></i> Cobrar</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function addToCart(name, price) {
+  const product = getRecords('product').find(p => p.name === name);
+  const existing = cartItems.find(i => i.name === name);
+  const currentQty = existing ? existing.qty : 0;
+
+  if (product && currentQty >= (product.amount || 0)) { toast('Stock insuficiente', 'error'); return; }
+  if(existing) { existing.qty++; } else { cartItems.push({name, price, qty: 1}); }
+  renderCurrentSection();
+}
+
+function modifyCart(index, delta) {
+  if (delta > 0) {
+    const item = cartItems[index];
+    const product = getRecords('product').find(p => p.name === item.name);
+    if (product && item.qty >= (product.amount || 0)) { toast('Stock insuficiente', 'error'); return; }
+  }
+  cartItems[index].qty += delta;
+  if(cartItems[index].qty <= 0) { cartItems.splice(index, 1); }
+  renderCurrentSection();
+}
+
+function removeFromCart(index) { cartItems.splice(index, 1); renderCurrentSection(); }
+function clearCart() { cartItems = []; renderCurrentSection(); }
+
+function proceedPayment() {
+  if(cartItems.length === 0) { toast('Carrito vacío','error'); return; }
+  const total = cartItems.reduce((s,i)=>s+(i.price*i.qty),0);
+  const area = document.getElementById('content');
+  area.innerHTML = `
+  <div class="fade-in max-w-md mx-auto">
+    <h2 class="text-xl font-800 mb-4">Método de Pago</h2>
+    <div class="bg-gym-surface rounded-xl p-4 border border-gym-border space-y-3">
+      <div>
+        <label for="pay-method" class="text-[10px] text-gym-muted">Método de pago</label>
+        <select id="pay-method" class="w-full px-3 py-2.5 rounded-lg text-xs mt-1">
+          <option>Efectivo</option>
+          <option>Tarjeta</option>
+          <option>Transferencia</option>
+        </select>
+      </div>
+      <div>
+        <label for="pay-amount" class="text-[10px] text-gym-muted">Monto recibido ($)</label>
+        <input id="pay-amount" type="number" class="w-full px-3 py-2.5 rounded-lg text-xs mt-1" placeholder="Ej: ${total}" step="1">
+      </div>
+      <div class="bg-gym-bg rounded-lg p-3 text-center">
+        <p class="text-[10px] text-gym-muted">Total a pagar</p>
+        <p class="text-2xl font-800 text-gym-accent">${formatMoney(total)}</p>
+      </div>
+      <div id="change-info"></div>
+      <div class="flex gap-2">
+        <button onclick="navigateTo('pos')" class="flex-1 px-4 py-2.5 bg-gym-border text-gym-muted rounded-lg text-xs font-600 transition-colors hover:bg-gym-border/80">Cancelar</button>
+        <button onclick="finalizeSale(${total})" class="flex-1 px-4 py-2.5 bg-gym-accent hover:bg-gym-accentHover text-white rounded-lg text-xs font-600 transition-colors">Completar Venta</button>
+      </div>
+    </div>
+  </div>`;
+  
+  document.getElementById('pay-amount').addEventListener('input', (e) => {
+    const amount = parseFloat(e.target.value) || 0;
+    const change = amount - total;
+    const info = document.getElementById('change-info');
+    
+    if(e.target.value === "") { info.innerHTML = ``; } 
+    else if(change >= 0) { info.innerHTML = `<div class="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-2 text-center"><p class="text-[10px] text-emerald-400">Cambio a entregar</p><p class="text-lg font-700 text-emerald-400">${formatMoney(change)}</p></div>`; } 
+    else { info.innerHTML = `<div class="bg-red-500/10 border border-red-500/20 rounded-lg p-2 text-center"><p class="text-[10px] text-red-400">Falta dinero</p><p class="text-lg font-700 text-red-400">${formatMoney(Math.abs(change))}</p></div>`; }
+  });
+  if(window.lucide) lucide.createIcons();
+}
+
+async function finalizeSale(total) {
+  const method = document.getElementById('pay-method').value;
+  const inputEl = document.getElementById('pay-amount').value;
+  const received = inputEl === "" ? total : parseFloat(inputEl);
+  
+  if(received < total) { toast('Monto insuficiente','error'); return; }
+  
+  const ticketNum = 'TK-' + Date.now().toString().slice(-6);
+  const itemsList = cartItems.map(i => `${i.qty}x ${i.name}`).join(' | ');
+  
+  const sale = {
+    type: 'sale',
+    ticket_number: ticketNum,
+    name: itemsList,
+    amount: total,
+    method,
+    date: today(),
+    employee: currentUser.username, 
+    status: 'completed',
+    items: JSON.stringify(cartItems),
+    notes: `Recibido: $${received} | Cambio: $${received - total}`,
+    phone: '', email: '', membership: '', expiry: '', role: '', schedule: '', checkin_date: '', category: ''
+  };
+  
+  const r = await window.dataSdk.create(sale);
+  if(r.isOk) {
+    for (const item of cartItems) {
+      const product = allRecords.find(p => p.type === 'product' && p.name === item.name);
+      if (product) {
+        const newStock = Math.max(0, (product.amount || 0) - item.qty);
+        await window.dataSdk.update({ ...product, amount: newStock });
+      }
+    }
+    showTicket(sale, received, false); 
+  } else {
+    toast('Error al guardar','error');
+  }
+}
+// Haz lo mismo para el ticket del Punto de Venta:
+function showTicket(sale, received, isPast = false) {
+  currentSection = 'ticket'; // <-- EVITA QUE FIREBASE BORRE EL TICKET AL RECARGAR
+  
+  const items = JSON.parse(sale.items || '[]');
+  const change = received - sale.amount;
+  // ... (el resto queda igual)
+  const ticketHTML = `
+  <div class="fade-in max-w-sm mx-auto">
+    <div id="printable-ticket" class="bg-white text-black p-6 rounded-lg shadow-lg font-mono text-sm mx-auto w-full max-w-[320px]">
+      
+      <div class="text-center font-bold text-xl mb-1">${window.elementSdk ? window.elementSdk.config.gym_name : 'GymPro'}</div>
+      <div class="text-center text-xs text-gray-600 mb-4">${window.elementSdk ? window.elementSdk.config.gym_slogan : 'Tu mejor versión'}</div>
+      
+      <div class="text-xs mb-4 border-b border-dashed border-gray-400 pb-2">
+        <div class="flex justify-between"><span>Ticket:</span> <span>${sale.ticket_number}</span></div>
+        <div class="flex justify-between"><span>Fecha:</span> <span>${formatDate(sale.date)} ${new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}</span></div>
+        <div class="flex justify-between"><span>Cajero:</span> <span>${sale.employee}</span></div>
+      </div>
+      
+      <table class="w-full text-xs mb-4">
+        <thead>
+          <tr class="border-b border-dashed border-gray-400">
+            <th class="text-left py-1 w-8">CANT</th>
+            <th class="text-left py-1">DESCRIPCIÓN</th>
+            <th class="text-right py-1">IMPORTE</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.map(i=>`
+          <tr>
+            <td class="py-1 align-top font-bold">${i.qty}</td>
+            <td class="py-1 pr-2 leading-tight">${i.name}<br><span class="text-[10px] text-gray-500">${formatMoney(i.price)} c/u</span></td>
+            <td class="text-right py-1 align-top">${formatMoney(i.price * i.qty)}</td>
+          </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      
+      <div class="text-xs border-t border-dashed border-gray-400 pt-2 space-y-1">
+        <div class="flex justify-between"><span>Subtotal:</span><span>${formatMoney(sale.amount)}</span></div>
+        <div class="flex justify-between font-bold text-base mt-1"><span>TOTAL:</span><span>${formatMoney(sale.amount)}</span></div>
+        
+        <div class="mt-3 pt-2 border-t border-dashed border-gray-200">
+          <div class="flex justify-between"><span>Pago en:</span><span>${sale.method}</span></div>
+          <div class="flex justify-between"><span>Recibido:</span><span>${formatMoney(received)}</span></div>
+          <div class="flex justify-between font-bold mt-1"><span>CAMBIO:</span><span>${formatMoney(change)}</span></div>
+        </div>
+      </div>
+      
+      <div class="text-center text-xs mt-6 pt-2 border-t border-dashed border-gray-400 text-gray-600">
+        <p>¡Gracias por su compra!</p>
+        <p>Vuelva pronto</p>
+      </div>
+
+    </div>
+    
+    <div class="flex gap-2 mt-6 no-print max-w-[320px] mx-auto">
+      <button onclick="printTicket()" class="flex-1 px-4 py-3 bg-gym-accent hover:bg-gym-accentHover text-white rounded-lg text-sm font-600 transition-colors shadow-lg shadow-gym-accent/20"><i data-lucide="printer" class="w-4 h-4 inline mr-1"></i> Imprimir</button>
+      ${isPast 
+        ? `<button onclick="navigateTo('sales-history')" class="flex-1 px-4 py-3 bg-gym-surface border border-gym-border text-gym-text rounded-lg text-sm font-600 hover:bg-gym-border/50 transition-colors"><i data-lucide="arrow-left" class="w-4 h-4 inline mr-1"></i> Volver</button>`
+        : `<button onclick="newSale()" class="flex-1 px-4 py-3 bg-gym-surface border border-gym-border text-gym-text rounded-lg text-sm font-600 hover:bg-gym-border/50 transition-colors"><i data-lucide="plus" class="w-4 h-4 inline mr-1"></i> Nueva Venta</button>`
+      }
+    </div>
+  </div>`;
+  
+  document.getElementById('content').innerHTML = ticketHTML;
+  if(window.lucide) lucide.createIcons();
+}
+
+function printTicket() { window.print(); }
+function newSale() { cartItems = []; navigateTo('pos'); }
+
+// ===== SALES HISTORY =====
+function renderSalesHistory() {
+  const sales = getRecords('sale');
+  const todaySales = sales.filter(s => s.date === today());
+  const todayTotal = todaySales.reduce((s,sale) => s + (sale.amount||0), 0);
+  const totalSales = sales.reduce((s,sale) => s + (sale.amount||0), 0);
+  
+  const isAdmin = currentUser && currentUser.role === 'admin';
+
+  return `
+  <div class="fade-in space-y-4">
+    <div class="flex items-center justify-between flex-wrap gap-2">
+      <h1 class="text-xl font-800">Historial de Ventas</h1>
+    </div>
+    
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      ${statCard('shopping-cart','Hoy',todaySales.length,'bg-blue-500/10','text-blue-400')}
+      ${statCard('dollar-sign','Ingresos hoy',formatMoney(todayTotal),'bg-emerald-500/10','text-emerald-400')}
+      ${statCard('trending-up','Total ventas',formatMoney(totalSales),'bg-violet-500/10','text-violet-400')}
+    </div>
+    
+    <div class="space-y-2">
+      ${sales.length===0?'<div class="text-center py-12 text-gym-muted"><i data-lucide="shopping-bag" class="w-10 h-10 mx-auto mb-2 opacity-30"></i><p class="text-sm">Sin historial de ventas</p></div>':
+      sales.slice().reverse().slice(0,50).map(s=>{
+        
+        const adminActions = isAdmin ? `
+          <div class="flex justify-end gap-2 mt-3 pt-3 border-t border-gym-border">
+            <button onclick="viewPastTicket('${s.__backendId}')" class="px-3 py-1.5 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-lg text-[10px] font-600 transition-colors flex items-center gap-1.5"><i data-lucide="receipt" class="w-3.5 h-3.5"></i> Ver Ticket</button>
+            <button onclick="deleteSaleRecord('${s.__backendId}')" class="px-3 py-1.5 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg text-[10px] font-600 transition-colors flex items-center gap-1.5"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Cancelar Venta</button>
+          </div>
+        ` : '';
+
+        return `
+        <div class="bg-gym-surface rounded-lg p-3 border border-gym-border slide-in">
+          <div class="flex items-center justify-between cursor-pointer" onclick="expandSale(this)">
+            <div class="flex items-center gap-3 flex-1">
+              <div class="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center"><i data-lucide="receipt" class="w-4 h-4 text-blue-400"></i></div>
+              <div class="min-w-0 flex-1">
+                <p class="text-xs font-600">${s.ticket_number}</p>
+                <p class="text-[10px] text-gym-muted">${formatDate(s.date)} · Cajero: ${s.employee||'N/A'}</p>
+              </div>
+            </div>
+            <div class="text-right">
+              <p class="text-sm font-700 text-emerald-400">${formatMoney(s.amount)}</p>
+              <p class="text-[10px] text-gym-muted">${s.method}</p>
+            </div>
+          </div>
+          <div class="sale-details hidden mt-3 pt-3 border-t border-gym-border space-y-1">
+            ${JSON.parse(s.items||'[]').map(i=>`<div class="flex justify-between text-[10px] text-gym-muted"><span>${i.qty}x ${i.name}</span><span>${formatMoney(i.price*i.qty)}</span></div>`).join('')}
+            <div class="flex justify-between text-[10px] text-gym-muted pt-1 mt-1 border-t border-gym-border">${s.notes||''}</div>
+            ${adminActions}
+          </div>
+        </div>
+        `
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+function expandSale(el) {
+  const details = el.parentElement.querySelector('.sale-details');
+  if(details) details.classList.toggle('hidden');
+}
+
+function viewPastTicket(backendId) {
+  const sale = allRecords.find(r => r.__backendId === backendId);
+  if(!sale) return;
+
+  let received = sale.amount;
+  const match = sale.notes?.match(/Recibido:\s*\$?([\d,.]+)/);
+  if(match && match[1]) {
+     received = parseFloat(match[1].replace(/,/g, ''));
+  }
+
+  showTicket(sale, received, true); 
+}
+
+async function deleteSaleRecord(backendId) {
+  const sale = allRecords.find(r => r.__backendId === backendId);
+  if(!sale) return;
+  
+  const btn = window.event.currentTarget || window.event.srcElement;
+  if(!btn.dataset.confirming) {
+    btn.dataset.confirming = 'true';
+    btn.innerHTML = '<i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i> ¿Devolver Stock?';
+    setTimeout(() => { if(btn.dataset.confirming) { delete btn.dataset.confirming; btn.innerHTML = `<i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Cancelar Venta`; if(window.lucide) lucide.createIcons(); }}, 3000);
+    return;
+  }
+  delete btn.dataset.confirming;
+
+  try {
+      const items = JSON.parse(sale.items || '[]');
+      for (const item of items) {
+          const product = allRecords.find(p => p.type === 'product' && p.name === item.name);
+          if (product) {
+              const newStock = (product.amount || 0) + item.qty;
+              await window.dataSdk.update({ ...product, amount: newStock });
+          }
+      }
+  } catch(e) { console.error(e); }
+
+  const r = await window.dataSdk.delete(sale);
+  if(r.isOk) {
+      toast('Venta cancelada y stock restaurado');
+  } else {
+      toast('Error al cancelar la venta','error');
+  }
+}
+
+// ===== DELETE GENÉRICO =====
+async function deleteRecord(backendId, type) {
+  const record = allRecords.find(r => r.__backendId === backendId);
+  if(!record) return;
+  const btn = window.event.currentTarget || window.event.srcElement;
+  if(!btn.dataset.confirming) {
+    btn.dataset.confirming = 'true';
+    btn.innerHTML = '<span class="text-[10px] text-red-400 font-600">¿Eliminar?</span>';
+    setTimeout(() => { if(btn.dataset.confirming) { delete btn.dataset.confirming; btn.innerHTML = `<i data-lucide="trash-2" class="w-3.5 h-3.5 text-gym-muted"></i>`; if(window.lucide) lucide.createIcons(); }}, 3000);
+    return;
+  }
+  delete btn.dataset.confirming;
+  const r = await window.dataSdk.delete(record);
+  if(r.isOk) toast('Eliminado');
+  else toast('Error al eliminar','error');
+}
+
+// ===== EXPORTACIÓN GLOBAL PARA HTML =====
+window.doLogin = doLogin;
+window.doLogout = doLogout;
+window.toggleSidebar = toggleSidebar;
+window.navigateTo = navigateTo;
+window.showClientForm = showClientForm;
+window.saveClient = saveClient;
+window.filterClients = filterClients;
+window.showPaymentForm = showPaymentForm;
+window.updateClientPreview = updateClientPreview;
+window.savePayment = savePayment;
+window.reprintPaymentTicket = reprintPaymentTicket;
+window.showUserForm = showUserForm;
+window.saveUser = saveUser;
+window.doCheckin = doCheckin;
+window.showProductForm = showProductForm;
+window.saveProduct = saveProduct;
+window.addToCart = addToCart;
+window.modifyCart = modifyCart;
+window.removeFromCart = removeFromCart;
+window.clearCart = clearCart;
+window.proceedPayment = proceedPayment;
+window.finalizeSale = finalizeSale;
+window.printTicket = printTicket;
+window.newSale = newSale;
+window.expandSale = expandSale;
+window.viewPastTicket = viewPastTicket;
+window.deleteSaleRecord = deleteSaleRecord;
+window.deleteRecord = deleteRecord;
+window.selectDay = selectDay;
+window.changeCal = changeCal;
+window.deletePaymentRecord = deletePaymentRecord;
+
+
+// ===== INIT =====
+if(window.lucide) lucide.createIcons();
+</script>
+ </body>
+</html>
