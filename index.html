@@ -133,7 +133,7 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 // ===== STATE =====
-let selectedCalDate = null; // Guarda el día seleccionado en el calendario
+let selectedCalDate = null; 
 let currentUser = null;
 let currentSection = 'dashboard';
 let allRecords = [];
@@ -150,7 +150,10 @@ systemCollections.forEach(type => {
       allRecords.push({ ...docSnap.data(), __backendId: docSnap.id, type: type });
     });
     recordCount = allRecords.length;
-    if(currentUser) renderCurrentSection();
+    // Si estamos viendo un ticket, EVITAMOS que se redibuje la pantalla
+    if(currentUser && currentSection !== 'ticket') {
+        renderCurrentSection();
+    }
   });
 });
 
@@ -158,7 +161,7 @@ window.dataSdk = {
   create: async (data) => {
     try {
       const colName = data.type + 's';
-      data.timestamp = Date.now(); // <-- ESTO ES CLAVE: Guarda la hora exacta
+      data.timestamp = Date.now(); // <-- MAGIA: Reloj exacto para ordenar historiales
       const docRef = await addDoc(collection(db, colName), data);
       return { isOk: true, id: docRef.id };
     } catch (e) { console.error("Firebase Create Error:", e); return { isOk: false }; }
@@ -181,8 +184,6 @@ window.dataSdk = {
     } catch (e) { console.error("Firebase Delete Error:", e); return { isOk: false }; }
   }
 };
-
-
 
 const defaultConfig = {
   gym_name: 'GymPro Manager',
@@ -230,7 +231,7 @@ if(window.elementSdk) {
 
 // ===== HELPERS =====
 function getRecords(type) { 
-  // ORDENAMOS POR TIMESTAMP PARA QUE LO NUEVO SALGA HASTA EL FINAL (Y LUEGO EL REVERSE LO PONGA AL PRINCIPIO)
+  // OBLIGAMOS A ORDENAR POR TIMESTAMP DE CREACIÓN PARA QUE NADA SE PIERDA
   return allRecords.filter(r => r.type === type).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)); 
 }
 function today() { return new Date().toISOString().split('T')[0]; }
@@ -293,9 +294,10 @@ function buildNav() {
     {id:'pos',icon:'shopping-cart',label:'Punto de Venta'},
     {id:'clients',icon:'users',label:'Clientes'},
     {id:'payments',icon:'calendar-check',label:'Mensualidades'},
+    {id:'payment-history',icon:'clipboard-list',label:'Historial Cobros'}, // <--- NUEVO MÓDULO
     {id:'products',icon:'package',label:'Productos'},
     {id:'checkin',icon:'scan-line',label:'Check-in'},
-    {id:'sales-history',icon:'history',label:'Historial Ventas'},
+    {id:'sales-history',icon:'history',label:'Historial Ventas POS'},
     {id:'finance',icon:'bar-chart-3',label:'Finanzas'},
     {id:'users',icon:'users-cog',label:'Usuarios'},
     {id:'access-log',icon:'shield',label:'Bitácora'}
@@ -305,8 +307,9 @@ function buildNav() {
     {id:'pos',icon:'shopping-cart',label:'Punto de Venta'},
     {id:'clients',icon:'users',label:'Clientes'},
     {id:'payments',icon:'calendar-check',label:'Mensualidades'},
+    {id:'payment-history',icon:'clipboard-list',label:'Historial Cobros'}, // <--- NUEVO MÓDULO
     {id:'checkin',icon:'scan-line',label:'Check-in'},
-    {id:'sales-history',icon:'history',label:'Historial Ventas'}
+    {id:'sales-history',icon:'history',label:'Historial Ventas POS'}
   ];
   const items = currentUser.role==='admin' ? adminNav : empNav;
   const html = items.map(i => `<button class="nav-item w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-500 text-gym-muted ${currentSection===i.id?'active':''}" onclick="navigateTo('${i.id}')"><i data-lucide="${i.icon}" class="w-4 h-4"></i>${i.label}</button>`).join('');
@@ -334,6 +337,7 @@ function renderCurrentSection() {
     dashboard: renderDashboard, 
     clients: renderClients, 
     payments: renderPayments, 
+    'payment-history': renderPaymentHistory, // <--- NUEVA VISTA
     checkin: renderCheckin, 
     finance: renderFinance, 
     products: renderProducts, 
@@ -355,14 +359,14 @@ function renderDashboard() {
   const active = clients.filter(c=>c.status==='active').length;
   
   const todayPayments = payments.filter(p=>p.date===today());
-  const todayPaymentsIncome = todayPayments.reduce((s,p)=>s+(p.amount||0),0);
+  const todayPaymentsIncome = todayPayments.reduce((s,p)=>s+(Number(p.amount)||0),0);
   const monthPayments = payments.filter(p=>p.date&&p.date.startsWith(new Date().toISOString().slice(0,7)));
-  const monthPaymentsIncome = monthPayments.reduce((s,p)=>s+(p.amount||0),0);
+  const monthPaymentsIncome = monthPayments.reduce((s,p)=>s+(Number(p.amount)||0),0);
 
   const todaySales = sales.filter(s=>s.date===today());
-  const todaySalesIncome = todaySales.reduce((s,p)=>s+(p.amount||0),0);
+  const todaySalesIncome = todaySales.reduce((s,p)=>s+(Number(p.amount)||0),0);
   const monthSales = sales.filter(p=>p.date&&p.date.startsWith(new Date().toISOString().slice(0,7)));
-  const monthSalesIncome = monthSales.reduce((s,p)=>s+(p.amount||0),0);
+  const monthSalesIncome = monthSales.reduce((s,p)=>s+(Number(p.amount)||0),0);
 
   const todayIncome = todayPaymentsIncome + todaySalesIncome;
   const monthIncome = monthPaymentsIncome + monthSalesIncome;
@@ -374,8 +378,8 @@ function renderDashboard() {
   for(let i=6;i>=0;i--) { const d=new Date(); d.setDate(d.getDate()-i); weekDays.push(d.toISOString().split('T')[0]); }
   
   const weekData = weekDays.map(d => {
-    const pInc = payments.filter(p=>p.date===d).reduce((s,p)=>s+(p.amount||0),0);
-    const sInc = sales.filter(s=>s.date===d).reduce((s,sale)=>s+(sale.amount||0),0);
+    const pInc = payments.filter(p=>p.date===d).reduce((s,p)=>s+(Number(p.amount)||0),0);
+    const sInc = sales.filter(s=>s.date===d).reduce((s,sale)=>s+(Number(sale.amount)||0),0);
     return pInc + sInc;
   });
   const maxW = Math.max(...weekData,1);
@@ -414,7 +418,7 @@ function statCard(icon,label,value,bg,tc) {
   return `<div class="stat-card bg-gym-surface rounded-xl p-3 border border-gym-border cursor-default"><div class="w-8 h-8 rounded-lg ${bg} flex items-center justify-center mb-2"><i data-lucide="${icon}" class="w-4 h-4 ${tc}"></i></div><p class="text-lg font-700">${value}</p><p class="text-[10px] text-gym-muted">${label}</p></div>`;
 }
 
-// ===== USUARIOS E EMPLEADOS =====
+// ===== USUARIOS =====
 let editingUserId = null;
 
 function renderUsers() {
@@ -543,7 +547,6 @@ function renderClients() {
 function clientCard(c) {
   const initials = (c.name||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   
-  // Lógica de fechas
   const expDate = new Date((c.expiry || today()) + 'T12:00:00');
   const now = new Date();
   now.setHours(0,0,0,0);
@@ -648,23 +651,19 @@ function renderPayments() {
   const clients = getRecords('client');
   const isAdmin = currentUser && currentUser.role === 'admin';
   
-  // --- LÓGICA DE CÁLCULOS DE HOY ---
   const todayStr = today();
   const todayDate = new Date();
   todayDate.setHours(0, 0, 0, 0); 
 
-  // 1. Pagos e Ingresos de HOY (Para que veas el cambio inmediato al cobrar)
   const todayPayments = payments.filter(p => p.date === todayStr);
   const todayIncome = todayPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
-  // 2. Clientes con Adeudo
   const overdueCount = clients.filter(c => {
     if (!c.expiry) return false;
     const exp = new Date(c.expiry + 'T12:00:00');
     return exp < todayDate;
   }).length;
 
-  // 3. Próximos a vencer (Faltan entre 0 y 3 días)
   const upcomingExpCount = clients.filter(c => {
     if (!c.expiry) return false;
     const exp = new Date(c.expiry + 'T12:00:00');
@@ -673,7 +672,6 @@ function renderPayments() {
     return diffDays >= 0 && diffDays <= 3; 
   }).length;
 
-  // --- SECCIÓN CONDICIONAL: DETALLES DEL DÍA SELECCIONADO ---
   let dayDetailsSection = '';
   if (selectedCalDate) {
     const dayDues = clients.filter(c => c.expiry === selectedCalDate);
@@ -713,11 +711,14 @@ function renderPayments() {
     </div>`;
   }
 
-  // --- SECCIÓN FIJA: HISTORIAL DE COBROS RECIENTES ---
+  // Dejamos un mini-historial en la vista de pagos
   const historySection = `
   <div class="space-y-2 mt-6">
-    <h3 class="text-xs font-700 text-gym-muted px-1 uppercase tracking-wider">Últimos Cobros Realizados</h3>
-    ${payments.slice().reverse().slice(0,15).map(p=>`
+    <div class="flex justify-between items-end mb-2 px-1">
+      <h3 class="text-xs font-700 text-gym-muted uppercase tracking-wider">Últimos Cobros Realizados</h3>
+      <button onclick="navigateTo('payment-history')" class="text-[10px] font-700 text-gym-accent hover:underline">Ver Historial Completo</button>
+    </div>
+    ${payments.slice().reverse().slice(0,5).map(p=>`
       <div class="bg-gym-surface/50 rounded-xl p-3 border border-gym-border flex items-center justify-between slide-in">
         <div class="flex items-center gap-3">
            <div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0"><i data-lucide="receipt" class="w-4 h-4 text-emerald-500"></i></div>
@@ -774,6 +775,7 @@ function renderPayments() {
     ${historySection}
   </div>`;
 }
+
 function generateCalendarDays(clients) {
   const year = calendarDate.getFullYear();
   const month = calendarDate.getMonth();
@@ -783,18 +785,15 @@ function generateCalendarDays(clients) {
   
   let html = '';
   
-  // Días vacíos del mes anterior
   for (let i = 0; i < firstDay; i++) {
     html += `<div class="cal-day border-r border-b border-gym-border opacity-20"></div>`;
   }
   
-  // Días del mes actual
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = year + '-' + String(month+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
     const isToday = dateStr === todayStr;
     const isSelected = dateStr === selectedCalDate;
     
-    // Filtramos los clientes que vencen este día
     const dues = clients.filter(c => c.expiry === dateStr);
     const hasDues = dues.length > 0;
     
@@ -804,7 +803,6 @@ function generateCalendarDays(clients) {
       
       <div class="flex justify-between items-start">
         <span class="text-[10px] font-700 ` + (isToday ? 'text-gym-accent' : 'text-gym-muted') + `">` + d + `</span>
-        
         ` + (hasDues ? `<div class="w-1.5 h-1.5 rounded-full bg-gym-accent glow shadow-[0_0_8px_rgba(244,63,94,0.6)]"></div>` : '') + `
       </div>
 
@@ -823,21 +821,15 @@ function generateCalendarDays(clients) {
   return html;
 }
 
-
 function selectDay(dateStr) {
-  // Si hace clic en el mismo día, lo deselecciona; si no, lo marca como seleccionado
   selectedCalDate = (selectedCalDate === dateStr) ? null : dateStr;
   renderCurrentSection();
 }
-// Función para navegar entre meses
+
 function changeCal(offset) {
-    // Creamos una nueva fecha basada en la actual para evitar errores de referencia
     const newDate = new Date(calendarDate.setMonth(calendarDate.getMonth() + offset));
     calendarDate = newDate;
-    
-    // Limpiamos el día seleccionado al cambiar de mes para evitar confusiones visuales
     selectedCalDate = null; 
-    
     renderCurrentSection();
 }
 
@@ -919,13 +911,22 @@ window.updateClientPreview = function() {
 
 async function savePayment() {
   const name = document.getElementById('pf-client').value;
-  const amount = parseFloat(document.getElementById('pf-amount').value)||0;
+  const amountStr = document.getElementById('pf-amount').value;
+  const amount = parseFloat(amountStr) || 0;
+  
   if(!name){toast('Selecciona un cliente','error');return;}
+  if(amount <= 0){toast('Monto debe ser mayor a 0','error');return;}
   
   const membership = document.getElementById('pf-membership').value;
+  const method = document.getElementById('pf-method').value;
   const client = allRecords.find(r=>r.type==='client'&&r.name===name);
-  let baseDate = new Date();
   
+  if (!client) {
+     toast('Cliente no encontrado en la base de datos', 'error');
+     return;
+  }
+  
+  let baseDate = new Date();
   if(client && client.expiry) {
       const currentExp = new Date(client.expiry + 'T12:00:00');
       if(currentExp > baseDate) baseDate = currentExp;
@@ -935,24 +936,35 @@ async function savePayment() {
   else if(membership==='Semanal') baseDate.setDate(baseDate.getDate()+7);
   else baseDate.setDate(baseDate.getDate()+1);
   
-  await window.dataSdk.update({...client, expiry:baseDate.toISOString().split('T')[0], status:'active'});
+  const newExpiry = baseDate.toISOString().split('T')[0];
+  
+  // BLOQUEAR EL REDIBUJADO DE LA PANTALLA
+  currentSection = 'ticket'; 
+  
+  await window.dataSdk.update({...client, expiry: newExpiry, status:'active'});
   
   const paymentRecord = {
-    type:'payment', name, amount, method:document.getElementById('pf-method').value, membership, 
+    type:'payment', name, amount, method, membership, 
     date:today(), status:'paid', phone:'',email:'',expiry:'',role:'',schedule:'',checkin_date:'',
-    notes:`Válido hasta ${formatDate(baseDate.toISOString().split('T')[0])}`, category:''
+    notes:`Válido hasta ${formatDate(newExpiry)}`, category:''
   };
 
   const r = await window.dataSdk.create(paymentRecord);
+  
   if(r.isOk) { 
+    paymentRecord.__backendId = r.id; // Asignar el ID real para futuras reimpresiones
     toast('Pago exitoso'); 
-    showPaymentTicket(paymentRecord, baseDate.toISOString().split('T')[0]); 
-  } else { toast('Error','error'); }
+    showPaymentTicket(paymentRecord, newExpiry); 
+  } else { 
+    currentSection = 'payments';
+    renderCurrentSection();
+    toast('Error al guardar en base de datos','error'); 
+  }
 }
 
-// Busca esta función y añádele la primera línea:
 function showPaymentTicket(payment, newExpiry) {
-  currentSection = 'ticket'; // <-- EVITA QUE FIREBASE BORRE EL TICKET AL RECARGAR
+  // Garantizar que nos quedamos en esta sección
+  currentSection = 'ticket'; 
   
   const ticketHTML = `
   <div class="fade-in max-w-sm mx-auto">
@@ -998,6 +1010,58 @@ function reprintPaymentTicket(backendId) {
   let exp = p.date;
   if(p.notes && p.notes.includes('Válido hasta')) exp = p.notes.replace('Válido hasta ', '').trim();
   showPaymentTicket(p, exp);
+}
+
+// ===== NUEVO MÓDULO: HISTORIAL DE COBROS =====
+function renderPaymentHistory() {
+  const payments = getRecords('payment');
+  const isAdmin = currentUser && currentUser.role === 'admin';
+  
+  const todayStr = today();
+  const todayTotal = payments.filter(p => p.date === todayStr).reduce((s,p) => s + (Number(p.amount) || 0), 0);
+  const allTotal = payments.reduce((s,p) => s + (Number(p.amount) || 0), 0);
+
+  return `
+  <div class="fade-in space-y-4">
+    <div class="flex items-center justify-between flex-wrap gap-2">
+      <h1 class="text-xl font-800">Historial Completo de Cobros</h1>
+    </div>
+    
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      ${statCard('calendar-check','Ingresos Hoy (Mensualidades)',formatMoney(todayTotal),'bg-blue-500/10','text-blue-400')}
+      ${statCard('dollar-sign','Histórico Total',formatMoney(allTotal),'bg-emerald-500/10','text-emerald-400')}
+    </div>
+    
+    <div class="bg-gym-surface rounded-2xl border border-gym-border overflow-hidden mt-4">
+      <div class="p-4 border-b border-gym-border bg-gym-bg/50">
+        <h3 class="font-700 text-sm">Todos los registros (${payments.length})</h3>
+      </div>
+      <div class="divide-y divide-gym-border">
+        ${payments.length === 0 ? '<p class="p-6 text-center text-gym-muted">No hay cobros registrados en la base de datos.</p>' : 
+          payments.slice().reverse().map(p => `
+          <div class="p-4 hover:bg-gym-bg/30 transition-colors flex items-center justify-between">
+            <div class="flex items-center gap-4">
+              <div class="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500 shrink-0">
+                <i data-lucide="receipt" class="w-5 h-5"></i>
+              </div>
+              <div>
+                <p class="font-700 text-sm">${p.name}</p>
+                <p class="text-xs text-gym-muted">${formatDate(p.date)} · ${p.method} · ${p.membership}</p>
+                ${p.notes ? `<p class="text-[10px] text-gym-muted mt-0.5">${p.notes}</p>` : ''}
+              </div>
+            </div>
+            <div class="text-right">
+              <p class="font-800 text-emerald-400 text-lg">${formatMoney(p.amount)}</p>
+              <div class="flex gap-2 justify-end mt-1">
+                <button onclick="reprintPaymentTicket('${p.__backendId}')" class="text-[10px] font-600 text-blue-400 hover:underline">Imprimir Ticket</button>
+                ${isAdmin ? `<button onclick="deletePaymentRecord('${p.__backendId}')" class="text-[10px] font-600 text-red-400 hover:underline">Revertir Cobro</button>` : ''}
+              </div>
+            </div>
+          </div>
+          `).join('')}
+      </div>
+    </div>
+  </div>`;
 }
 
 // Revertir pago accidental (Solo Admin)
@@ -1337,7 +1401,10 @@ async function finalizeSale(total) {
     phone: '', email: '', membership: '', expiry: '', role: '', schedule: '', checkin_date: '', category: ''
   };
   
+  // BLOQUEAR EL REDIBUJADO DE LA PANTALLA
+  currentSection = 'ticket';
   const r = await window.dataSdk.create(sale);
+
   if(r.isOk) {
     for (const item of cartItems) {
       const product = allRecords.find(p => p.type === 'product' && p.name === item.name);
@@ -1348,29 +1415,28 @@ async function finalizeSale(total) {
     }
     showTicket(sale, received, false); 
   } else {
+    currentSection = 'pos';
+    renderCurrentSection();
     toast('Error al guardar','error');
   }
 }
-// Haz lo mismo para el ticket del Punto de Venta:
+
 function showTicket(sale, received, isPast = false) {
-  currentSection = 'ticket'; // <-- EVITA QUE FIREBASE BORRE EL TICKET AL RECARGAR
+  currentSection = 'ticket'; 
   
   const items = JSON.parse(sale.items || '[]');
   const change = received - sale.amount;
-  // ... (el resto queda igual)
+  
   const ticketHTML = `
   <div class="fade-in max-w-sm mx-auto">
     <div id="printable-ticket" class="bg-white text-black p-6 rounded-lg shadow-lg font-mono text-sm mx-auto w-full max-w-[320px]">
-      
       <div class="text-center font-bold text-xl mb-1">${window.elementSdk ? window.elementSdk.config.gym_name : 'GymPro'}</div>
       <div class="text-center text-xs text-gray-600 mb-4">${window.elementSdk ? window.elementSdk.config.gym_slogan : 'Tu mejor versión'}</div>
-      
       <div class="text-xs mb-4 border-b border-dashed border-gray-400 pb-2">
         <div class="flex justify-between"><span>Ticket:</span> <span>${sale.ticket_number}</span></div>
         <div class="flex justify-between"><span>Fecha:</span> <span>${formatDate(sale.date)} ${new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}</span></div>
         <div class="flex justify-between"><span>Cajero:</span> <span>${sale.employee}</span></div>
       </div>
-      
       <table class="w-full text-xs mb-4">
         <thead>
           <tr class="border-b border-dashed border-gray-400">
@@ -1389,25 +1455,19 @@ function showTicket(sale, received, isPast = false) {
           `).join('')}
         </tbody>
       </table>
-      
       <div class="text-xs border-t border-dashed border-gray-400 pt-2 space-y-1">
         <div class="flex justify-between"><span>Subtotal:</span><span>${formatMoney(sale.amount)}</span></div>
         <div class="flex justify-between font-bold text-base mt-1"><span>TOTAL:</span><span>${formatMoney(sale.amount)}</span></div>
-        
         <div class="mt-3 pt-2 border-t border-dashed border-gray-200">
           <div class="flex justify-between"><span>Pago en:</span><span>${sale.method}</span></div>
           <div class="flex justify-between"><span>Recibido:</span><span>${formatMoney(received)}</span></div>
           <div class="flex justify-between font-bold mt-1"><span>CAMBIO:</span><span>${formatMoney(change)}</span></div>
         </div>
       </div>
-      
       <div class="text-center text-xs mt-6 pt-2 border-t border-dashed border-gray-400 text-gray-600">
-        <p>¡Gracias por su compra!</p>
-        <p>Vuelva pronto</p>
+        <p>¡Gracias por su compra!</p><p>Vuelva pronto</p>
       </div>
-
     </div>
-    
     <div class="flex gap-2 mt-6 no-print max-w-[320px] mx-auto">
       <button onclick="printTicket()" class="flex-1 px-4 py-3 bg-gym-accent hover:bg-gym-accentHover text-white rounded-lg text-sm font-600 transition-colors shadow-lg shadow-gym-accent/20"><i data-lucide="printer" class="w-4 h-4 inline mr-1"></i> Imprimir</button>
       ${isPast 
@@ -1428,21 +1488,21 @@ function newSale() { cartItems = []; navigateTo('pos'); }
 function renderSalesHistory() {
   const sales = getRecords('sale');
   const todaySales = sales.filter(s => s.date === today());
-  const todayTotal = todaySales.reduce((s,sale) => s + (sale.amount||0), 0);
-  const totalSales = sales.reduce((s,sale) => s + (sale.amount||0), 0);
+  const todayTotal = todaySales.reduce((s,sale) => s + (Number(sale.amount)||0), 0);
+  const totalSales = sales.reduce((s,sale) => s + (Number(sale.amount)||0), 0);
   
   const isAdmin = currentUser && currentUser.role === 'admin';
 
   return `
   <div class="fade-in space-y-4">
     <div class="flex items-center justify-between flex-wrap gap-2">
-      <h1 class="text-xl font-800">Historial de Ventas</h1>
+      <h1 class="text-xl font-800">Historial de Ventas POS</h1>
     </div>
     
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-      ${statCard('shopping-cart','Hoy',todaySales.length,'bg-blue-500/10','text-blue-400')}
+      ${statCard('shopping-cart','Ventas Hoy',todaySales.length,'bg-blue-500/10','text-blue-400')}
       ${statCard('dollar-sign','Ingresos hoy',formatMoney(todayTotal),'bg-emerald-500/10','text-emerald-400')}
-      ${statCard('trending-up','Total ventas',formatMoney(totalSales),'bg-violet-500/10','text-violet-400')}
+      ${statCard('trending-up','Histórico ventas',formatMoney(totalSales),'bg-violet-500/10','text-violet-400')}
     </div>
     
     <div class="space-y-2">
@@ -1582,7 +1642,6 @@ window.deleteRecord = deleteRecord;
 window.selectDay = selectDay;
 window.changeCal = changeCal;
 window.deletePaymentRecord = deletePaymentRecord;
-
 
 // ===== INIT =====
 if(window.lucide) lucide.createIcons();
