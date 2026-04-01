@@ -6,6 +6,10 @@
   <title>Sistema POS & Gym Manager</title>
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <script src="https://cdn.jsdelivr.net/npm/lucide@0.263.0/dist/umd/lucide.min.js"></script>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.263.0/dist/umd/lucide.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="/_sdk/element_sdk.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet">
   <script>
@@ -352,6 +356,7 @@ function renderCurrentSection() {
 }
 
 // ===== DASHBOARD =====
+// ===== DASHBOARD MEJORADO (CON RADAR DE COBROS WA) =====
 function renderDashboard() {
   const clients = getRecords('client');
   const payments = getRecords('payment');
@@ -359,12 +364,16 @@ function renderDashboard() {
 
   const active = clients.filter(c=>c.status==='active').length;
   
-  const todayPayments = payments.filter(p=>p.date===today());
+  const todayDate = new Date();
+  todayDate.setHours(0,0,0,0);
+  const todayStr = today();
+
+  const todayPayments = payments.filter(p=>p.date===todayStr);
   const todayPaymentsIncome = todayPayments.reduce((s,p)=>s+(Number(p.amount)||0),0);
   const monthPayments = payments.filter(p=>p.date&&p.date.startsWith(new Date().toISOString().slice(0,7)));
   const monthPaymentsIncome = monthPayments.reduce((s,p)=>s+(Number(p.amount)||0),0);
 
-  const todaySales = sales.filter(s=>s.date===today());
+  const todaySales = sales.filter(s=>s.date===todayStr);
   const todaySalesIncome = todaySales.reduce((s,p)=>s+(Number(p.amount)||0),0);
   const monthSales = sales.filter(p=>p.date&&p.date.startsWith(new Date().toISOString().slice(0,7)));
   const monthSalesIncome = monthSales.reduce((s,p)=>s+(Number(p.amount)||0),0);
@@ -372,78 +381,124 @@ function renderDashboard() {
   const todayIncome = todayPaymentsIncome + todaySalesIncome;
   const monthIncome = monthPaymentsIncome + monthSalesIncome;
 
-  const expiring = clients.filter(c => { if(!c.expiry) return false; const d=new Date(c.expiry + 'T12:00:00'); const diff=(d-new Date())/(1000*60*60*24); return diff>=0&&diff<=7; }).length;
-  const checkins = getRecords('checkin').filter(c=>c.date===today()).length;
+  const expiring = clients.filter(c => { if(!c.expiry) return false; const d=new Date(c.expiry + 'T12:00:00'); const diff=(d-todayDate)/(1000*60*60*24); return diff>=0&&diff<=7; }).length;
+  const checkins = getRecords('checkin').filter(c=>c.date===todayStr).length;
 
-  // Variable global para controlar la vista de la gráfica sin errores
   window.dashboardChartRange = window.dashboardChartRange || 'week';
 
-  // --- LÓGICA DE LA GRÁFICA DINÁMICA ---
   let chartLabels = [];
   let chartData = [];
 
   if (window.dashboardChartRange === 'week') {
-    // Últimos 7 días
     for(let i=6; i>=0; i--) {
       const d = new Date(); d.setDate(d.getDate()-i);
-      const dStr = d.toISOString().split('T')[0];
-      chartLabels.push(new Date(dStr + 'T12:00:00').toLocaleDateString('es-MX',{weekday:'short'}));
-      
-      const pInc = payments.filter(p=>p.date===dStr).reduce((s,p)=>s+(Number(p.amount)||0),0);
-      const sInc = sales.filter(s=>s.date===dStr).reduce((s,sale)=>s+(Number(sale.amount)||0),0);
+      const dS = d.toISOString().split('T')[0];
+      chartLabels.push(new Date(dS + 'T12:00:00').toLocaleDateString('es-MX',{weekday:'short'}));
+      const pInc = payments.filter(p=>p.date===dS).reduce((s,p)=>s+(Number(p.amount)||0),0);
+      const sInc = sales.filter(s=>s.date===dS).reduce((s,sale)=>s+(Number(sale.amount)||0),0);
       chartData.push(pInc + sInc);
     }
   } else {
-    // Últimos 6 meses (Vista Mensual)
     const currentYear = new Date().getFullYear();
     const currentMonth = new Date().getMonth();
-    
     for(let i=5; i>=0; i--) {
       const d = new Date(currentYear, currentMonth - i, 1);
-      const monthStr = d.toISOString().slice(0,7); 
+      const monthS = d.toISOString().slice(0,7); 
       chartLabels.push(d.toLocaleDateString('es-MX',{month:'short'}));
-      
-      const pInc = payments.filter(p=>p.date && p.date.startsWith(monthStr)).reduce((s,p)=>s+(Number(p.amount)||0),0);
-      const sInc = sales.filter(s=>s.date && s.date.startsWith(monthStr)).reduce((s,sale)=>s+(Number(sale.amount)||0),0);
+      const pInc = payments.filter(p=>p.date && p.date.startsWith(monthS)).reduce((s,p)=>s+(Number(p.amount)||0),0);
+      const sInc = sales.filter(s=>s.date && s.date.startsWith(monthS)).reduce((s,sale)=>s+(Number(sale.amount)||0),0);
       chartData.push(pInc + sInc);
     }
   }
 
   const maxW = Math.max(...chartData, 1);
 
+  // --- LÓGICA DEL RADAR DE COBROS (HOY Y MAÑANA) ---
+  const gymName = window.elementSdk ? window.elementSdk.config.gym_name : 'el gimnasio';
+  
+  const radarClients = clients.filter(c => {
+      if(!c.expiry || c.status !== 'active') return false;
+      const exp = new Date(c.expiry + 'T12:00:00');
+      const diffDays = Math.ceil((exp - todayDate) / (1000 * 60 * 60 * 24));
+      // Filtramos solo los que vencen hoy (0) o mañana (1)
+      return diffDays === 0 || diffDays === 1;
+  }).sort((a,b) => new Date(a.expiry) - new Date(b.expiry));
+
+  const radarHTML = `
+  <div class="bg-gym-surface rounded-xl p-4 border border-gym-border mt-4 slide-in">
+    <div class="flex items-center justify-between mb-3 border-b border-gym-border pb-2">
+      <h3 class="text-sm font-800 flex items-center gap-2"><i data-lucide="radar" class="w-4 h-4 text-gym-accent"></i> Radar de Cobros</h3>
+      <span class="bg-gym-accent/10 text-gym-accent px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">${radarClients.length} por renovar</span>
+    </div>
+    
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[260px] overflow-y-auto pr-1">
+      ${radarClients.length === 0 ? '<p class="text-xs text-gym-muted col-span-full py-4 text-center">Nadie vence hoy ni mañana. ¡Todo al día!</p>' :
+        radarClients.map(c => {
+          const exp = new Date(c.expiry + 'T12:00:00');
+          const diffDays = Math.ceil((exp - todayDate) / (1000 * 60 * 60 * 24));
+          const badge = diffDays === 0 
+            ? '<span class="bg-amber-500/20 text-amber-500 px-2 py-1 rounded text-[9px] font-900 tracking-wider">HOY</span>' 
+            : '<span class="bg-blue-500/20 text-blue-400 px-2 py-1 rounded text-[9px] font-900 tracking-wider">MAÑANA</span>';
+          
+          // Formateo del teléfono y mensaje para WhatsApp
+          let phoneRaw = (c.phone || '').replace(/\\D/g,'');
+          if(phoneRaw.length === 10) phoneRaw = '52' + phoneRaw; // Lada por defecto si ponen 10 dígitos
+          
+          const timeText = diffDays === 0 ? 'el día de hoy' : 'el día de mañana';
+          const msg = encodeURIComponent(`¡Hola ${c.name}! Te escribimos de ${gymName} para recordarte amigablemente que tu membresía vence ${timeText}. ¡Te esperamos en recepción para renovar y seguir cumpliendo tus metas! 💪🔥`);
+          const waLink = phoneRaw ? `https://wa.me/${phoneRaw}?text=${msg}` : '#';
+
+          return `
+          <div class="bg-gym-bg rounded-xl p-3 border border-gym-border flex flex-col justify-between hover:border-gym-accent/50 transition-colors shadow-lg">
+             <div class="flex justify-between items-start mb-2">
+                <div class="min-w-0 flex-1 pr-2">
+                   <p class="text-sm font-800 truncate text-white">${c.name}</p>
+                   <p class="text-[10px] font-500 text-gym-muted mt-0.5">${c.membership} ${c.phone ? '· ' + c.phone : ''}</p>
+                </div>
+                ${badge}
+             </div>
+             ${phoneRaw 
+               ? `<a href="${waLink}" target="_blank" class="w-full mt-2 py-2 bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#25D366] rounded-lg text-[11px] font-800 uppercase tracking-wide flex items-center justify-center gap-2 transition-colors border border-[#25D366]/30 hover:border-[#25D366]"><i data-lucide="message-circle" class="w-4 h-4"></i> Enviar Recordatorio</a>`
+               : `<button disabled class="w-full mt-2 py-2 bg-gym-border/30 text-gym-muted rounded-lg text-[11px] font-800 uppercase tracking-wide flex items-center justify-center gap-2 cursor-not-allowed border border-gym-border"><i data-lucide="phone-off" class="w-4 h-4"></i> Sin Teléfono</button>`
+             }
+          </div>`;
+        }).join('')
+      }
+    </div>
+  </div>
+  `;
+
   return `
-  <div class="fade-in space-y-5">
+  <div class="fade-in space-y-5 pb-6">
     <div class="flex items-center justify-between">
       <div><h1 class="text-xl font-800">Dashboard</h1><p class="text-gym-muted text-xs">${new Date().toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</p></div>
     </div>
+    
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       ${statCard('dollar-sign','Hoy (Total)',formatMoney(todayIncome),'bg-emerald-500/10','text-emerald-400')}
       ${statCard('trending-up','Mes (Total)',formatMoney(monthIncome),'bg-blue-500/10','text-blue-400')}
       ${statCard('users','Activos',active,'bg-violet-500/10','text-violet-400')}
       ${statCard('alert-triangle','Por vencer',expiring,'bg-amber-500/10','text-amber-400')}
     </div>
+    
+    ${radarHTML}
+
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      
       <div class="lg:col-span-2 bg-gym-surface rounded-xl p-4 border border-gym-border">
         <div class="flex items-center justify-between mb-3 border-b border-gym-border pb-2">
           <h3 class="text-sm font-600 flex items-center gap-2"><i data-lucide="bar-chart-2" class="w-4 h-4 text-gym-accent"></i> Gráfica de Ingresos</h3>
-          
           <select onchange="changeDashboardChart(this.value)" class="bg-gym-bg border border-gym-border text-xs rounded p-1 text-gym-muted focus:text-gym-text outline-none cursor-pointer">
             <option value="week" ${window.dashboardChartRange === 'week' ? 'selected' : ''}>Últimos 7 días</option>
             <option value="month" ${window.dashboardChartRange === 'month' ? 'selected' : ''}>Últimos 6 meses</option>
           </select>
         </div>
-        
         <div class="flex items-end gap-2 h-40 mt-4">
           ${chartData.map((val, i) => `
             <div class="flex-1 h-full flex flex-col items-center justify-end gap-1 group relative">
-              
               <div class="absolute -top-8 bg-gym-bg text-gym-text text-[10px] py-1 px-2 rounded border border-gym-accent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-lg">
                 ${formatMoney(val)}
               </div>
-              
               <div class="w-full rounded-t-md bg-gym-accent/80 hover:bg-gym-accent transition-all cursor-pointer" style="height:${Math.max((val/maxW)*100, 4)}%"></div>
-              
               <span class="text-[9px] text-gym-muted uppercase tracking-wider">${chartLabels[i]}</span>
             </div>
           `).join('')}
@@ -461,7 +516,6 @@ function renderDashboard() {
     </div>
   </div>`;
 }
-
 function changeDashboardChart(range) {
   dashboardChartRange = range;
   renderCurrentSection(); // Redibuja el dashboard con el nuevo cálculo
@@ -616,6 +670,8 @@ function clientCard(c) {
     statusColor = 'bg-amber-500/10 text-amber-400';
   }
 
+  // Dentro de la función clientCard(c), cambia el return por este:
+
   return `<div class="bg-gym-surface rounded-xl p-3 border border-gym-border flex items-center gap-3 slide-in" data-client-name="${(c.name||'').toLowerCase()}">
     <div class="w-10 h-10 rounded-full ${diffDays >= 0 ? 'bg-gym-accent/20 text-gym-accent' : 'bg-gray-700 text-gray-400'} flex items-center justify-center font-700 text-xs shrink-0">${initials}</div>
     <div class="flex-1 min-w-0">
@@ -623,6 +679,9 @@ function clientCard(c) {
       <p class="text-[10px] text-gym-muted">Inscrito: ${formatDate(c.date)} · ${c.membership||'Sin membresía'}</p>
       <p class="text-[10px] font-600 ${diffDays < 0 ? 'text-red-400' : (diffDays <= 7 ? 'text-amber-400' : 'text-emerald-400')} mt-0.5">Vence: ${formatDate(c.expiry)}</p>
     </div>
+    
+    <button onclick="openDigitalCard('${c.__backendId}')" class="p-1.5 hover:bg-blue-500/10 rounded-lg transition-colors shrink-0" title="Ver Credencial Digital"><i data-lucide="qr-code" class="w-4 h-4 text-gym-muted hover:text-blue-400"></i></button>
+
     <span class="px-2 py-0.5 rounded-full text-[10px] font-600 ${statusColor} shrink-0">${statusText}</span>
     <button onclick="deleteRecord('${c.__backendId}','client')" class="p-1.5 hover:bg-red-500/10 rounded-lg transition-colors shrink-0"><i data-lucide="trash-2" class="w-3.5 h-3.5 text-gym-muted hover:text-red-400"></i></button>
   </div>`;
@@ -684,11 +743,14 @@ async function saveClient() {
       return;
   }
 
-  const expiryStr = expiry.toISOString().split('T')[0]; // Limpiamos la fecha
+  const expiryStr = expiry.toISOString().split('T')[0];
+  
+  // GENERAR CÓDIGO DE BARRAS (10 Dígitos aleatorios)
+  const barcode = Math.floor(1000000000 + Math.random() * 9000000000).toString();
 
   const clientData = {
     type:'client', name, phone:document.getElementById('cf-phone').value.trim(), email:document.getElementById('cf-email').value.trim(), 
-    membership, status:'active', date: inscriptionDateStr, expiry: expiryStr, 
+    membership, status:'active', date: inscriptionDateStr, expiry: expiryStr, barcode: barcode,
     amount:0, method:'', role:'', schedule:'', checkin_date:'', notes:'', category:''
   };
 
@@ -697,6 +759,7 @@ async function saveClient() {
   const r = await window.dataSdk.create(clientData);
   
   if(r.isOk) { 
+    clientData.__backendId = r.id; // Asignamos el ID
     toast('Cliente registrado con éxito'); 
     
     if(amountToCharge > 0) {
@@ -709,15 +772,16 @@ async function saveClient() {
           notes: `Inscripción | Recibido: $${amountReceived} | Vence: ${expiryStr}`, category:''
        };
 
-       const pRes = await window.dataSdk.create(paymentRecord);
-       if(pRes.isOk) {
-           paymentRecord.__backendId = pRes.id;
-           showPaymentTicket(paymentRecord, expiryStr, amountReceived);
-           return;
-       }
+       await window.dataSdk.create(paymentRecord);
     }
+    
+    // Mostramos la credencial digital sobre todo lo demás
+    showDigitalCard(clientData);
+
+  } else { 
     currentSection = 'clients';
     renderCurrentSection();
+    toast('Error al guardar el cliente','error'); 
   }
 }
 
@@ -1215,35 +1279,162 @@ async function deletePaymentRecord(backendId) {
   }
 }
 
-// ===== CHECK-IN =====
+// ===== CHECK-IN MEJORADO (SEMÁFORO DE ACCESO) =====
 function renderCheckin() {
   const todayCheckins = getRecords('checkin').filter(c=>c.date===today());
   const clients = getRecords('client').filter(c=>c.status==='active');
+  
   return `
-  <div class="fade-in space-y-4">
+  <div class="fade-in space-y-4 max-w-4xl mx-auto">
     <div class="flex items-center justify-between flex-wrap gap-2">
-      <h1 class="text-xl font-800">Check-in</h1>
-      <span class="px-3 py-1 bg-gym-accent/10 text-gym-accent rounded-full text-xs font-600">${todayCheckins.length} entradas hoy</span>
+      <h1 class="text-xl font-800">Control de Acceso</h1>
+      <span class="px-4 py-1.5 bg-gym-accent/10 text-gym-accent rounded-lg text-sm font-800 tracking-wider">${todayCheckins.length} ENTRADAS HOY</span>
     </div>
-    <div class="flex gap-2">
-      <input id="checkin-search" type="text" placeholder="Nombre del cliente..." class="flex-1 px-3 py-2 rounded-lg text-xs" list="checkin-clients">
-      <datalist id="checkin-clients">${clients.map(c=>`<option value="${c.name}">`).join('')}</datalist>
-      <button onclick="doCheckin()" class="px-4 py-2 bg-gym-accent hover:bg-gym-accentHover text-white rounded-lg text-xs font-600 transition-colors flex items-center gap-1.5"><i data-lucide="log-in" class="w-3.5 h-3.5"></i> Registrar</button>
+    
+    <div class="bg-gym-surface p-4 rounded-2xl border border-gym-border shadow-lg">
+      <label class="block text-xs font-700 text-gym-muted uppercase tracking-wider mb-2">Escanea código, teléfono o nombre</label>
+      <div class="flex gap-2">
+        <input id="checkin-search" type="text" placeholder="Ej: Juan Pérez o 5551234567..." 
+               class="flex-1 px-4 py-3 rounded-xl text-sm font-600 bg-gym-bg border-2 border-gym-border focus:border-gym-accent transition-colors" 
+               list="checkin-clients" 
+               autofocus
+               onkeypress="if(event.key === 'Enter') doCheckin()">
+        <datalist id="checkin-clients">${clients.map(c=>`<option value="${c.name}">`).join('')}</datalist>
+        <button onclick="doCheckin()" class="px-6 py-3 bg-gym-accent hover:bg-gym-accentHover text-white rounded-xl text-sm font-800 transition-colors flex items-center gap-2 shadow-lg shadow-gym-accent/20"><i data-lucide="log-in" class="w-5 h-5"></i> ACCESO</button>
+      </div>
     </div>
-    <div class="space-y-2">
-      <h3 class="text-xs font-600 text-gym-muted">Entradas de hoy</h3>
-      ${todayCheckins.length===0?'<p class="text-center py-6 text-gym-muted text-xs">Sin entradas</p>':
-      todayCheckins.map(c=>`<div class="bg-gym-surface rounded-lg p-2.5 border border-gym-border flex items-center gap-2.5 slide-in"><div class="w-7 h-7 rounded-full bg-emerald-500/10 flex items-center justify-center"><i data-lucide="check" class="w-3.5 h-3.5 text-emerald-400"></i></div><span class="text-xs font-500">${c.name}</span><span class="text-[10px] text-gym-muted ml-auto">${c.checkin_date?new Date(c.checkin_date).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):''}</span></div>`).join('')}
+
+    <div id="checkin-alert" class="hidden transition-all duration-300"></div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+      <div class="space-y-2">
+        <h3 class="text-xs font-700 text-gym-muted px-1 uppercase tracking-wider"><i data-lucide="clock" class="w-3.5 h-3.5 inline mb-0.5"></i> Últimas Entradas</h3>
+        <div class="space-y-2 max-h-[400px] overflow-y-auto pr-2">
+          ${todayCheckins.length===0?'<div class="text-center py-10 bg-gym-surface rounded-xl border border-gym-border text-gym-muted text-sm">Nadie ha entrado hoy</div>':
+          todayCheckins.slice().reverse().map(c=>`
+            <div class="bg-gym-surface rounded-xl p-3 border border-gym-border flex items-center gap-3 slide-in">
+              <div class="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0">
+                <i data-lucide="user-check" class="w-5 h-5 text-emerald-400"></i>
+              </div>
+              <div class="flex-1 min-w-0">
+                <span class="text-sm font-700 block truncate">${c.name}</span>
+                <span class="text-[10px] text-gym-muted">Entró a las ${c.checkin_date?new Date(c.checkin_date).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):''}</span>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>
+      
+      <div class="hidden md:flex flex-col items-center justify-center bg-gym-surface rounded-2xl border border-gym-border p-6 text-center opacity-50">
+         <i data-lucide="qr-code" class="w-20 h-20 text-gym-muted mb-4"></i>
+         <p class="text-sm font-700 text-gym-muted">Sistema listo para escanear</p>
+         <p class="text-[10px] text-gym-muted mt-2">Puedes usar un lector de código de barras USB para dar acceso rápido usando el teléfono del cliente.</p>
+      </div>
     </div>
   </div>`;
 }
 
+// Lógica de validación de Check-in
 async function doCheckin() {
-  const name = document.getElementById('checkin-search').value.trim();
-  if(!name){toast('Ingresa el nombre','error');return;}
-  const r = await window.dataSdk.create({type:'checkin',name,date:today(),checkin_date:new Date().toISOString(),phone:'',email:'',membership:'',status:'',amount:0,method:'',expiry:'',role:'',schedule:'',notes:'',category:''});
-  if(r.isOk){toast(`Check-in: ${name}`);document.getElementById('checkin-search').value='';}
-  else toast('Error','error');
+  const inputEl = document.getElementById('checkin-search');
+  const inputVal = inputEl.value.trim();
+  const alertBox = document.getElementById('checkin-alert');
+  
+  if(!inputVal) return;
+
+  const client = getRecords('client').find(c => 
+      (c.name || '').toLowerCase() === inputVal.toLowerCase() || 
+      (c.phone || '') === inputVal ||
+      (c.barcode || '') === inputVal
+  );
+
+  if(!client) {
+    showCheckinAlert(alertBox, 'bg-red-500/10 border-red-500/50', 'text-red-500', 'x-octagon', 'CLIENTE NO ENCONTRADO', `Verifica el nombre o número. Si es nuevo, regístralo primero.`);
+    inputEl.value = ''; inputEl.focus();
+    return;
+  }
+
+  const expDate = new Date((client.expiry || today()) + 'T12:00:00');
+  const now = new Date();
+  now.setHours(0,0,0,0);
+  const diffDays = Math.ceil((expDate - now) / (1000 * 60 * 60 * 24));
+
+  // SEMÁFORO DE ACCESO
+  if (diffDays < 0) {
+      // ROJO
+      showCheckinAlert(alertBox, 'bg-red-500/20 border-red-500 shadow-lg shadow-red-500/20', 'text-red-500', 'alert-octagon', 'ACCESO DENEGADO', `<span class="font-800 text-white">${client.name}</span> tiene un adeudo. Su membresía venció hace ${Math.abs(diffDays)} días.`);
+  } else if (diffDays <= 3) {
+      // AMARILLO
+      showCheckinAlert(alertBox, 'bg-amber-500/20 border-amber-500 shadow-lg shadow-amber-500/20', 'text-amber-500', 'alert-triangle', 'ACCESO PERMITIDO (POR VENCER)', `¡Hola <span class="font-800 text-white">${client.name}</span>! Te quedan <strong>${diffDays} días</strong> de suscripción.`);
+      await saveCheckin(client.name);
+      
+      // ---> ¡NUEVO!: LANZAR ALERTA GIGANTE PARA EL RECEPCIONISTA <---
+      showWarningModal(client.name, diffDays);
+
+  } else {
+      // VERDE
+      showCheckinAlert(alertBox, 'bg-emerald-500/20 border-emerald-500 shadow-lg shadow-emerald-500/20', 'text-emerald-500', 'check-circle-2', 'ACCESO CORRECTO', `¡A entrenar con todo, <span class="font-800 text-white">${client.name}</span>! (Vence en ${diffDays} días)`);
+      await saveCheckin(client.name);
+  }
+
+  inputEl.value = '';
+  inputEl.focus();
+}
+
+// Guarda la visita en Firebase y recarga la lista inferior
+async function saveCheckin(name) {
+  await window.dataSdk.create({
+      type:'checkin', name, date:today(), checkin_date:new Date().toISOString(),
+      phone:'', email:'', membership:'', status:'', amount:0, method:'', expiry:'', role:'', schedule:'', notes:'', category:''
+  });
+  renderCurrentSection();
+}
+
+// Dibuja la alerta gigante
+function showCheckinAlert(el, bgClasses, textClass, icon, title, msg) {
+  el.className = `mt-4 p-6 rounded-2xl border-2 fade-in flex flex-col items-center justify-center gap-3 ${bgClasses}`;
+  el.innerHTML = `
+      <i data-lucide="${icon}" class="w-16 h-16 ${textClass} glow"></i>
+      <h2 class="text-3xl font-900 ${textClass} tracking-tight">${title}</h2>
+      <p class="text-gym-text text-lg">${msg}</p>
+  `;
+  el.classList.remove('hidden');
+  if(window.lucide) lucide.createIcons();
+  
+  // Ocultar alerta automáticamente después de 4 segundos
+  if(window.checkinTimer) clearTimeout(window.checkinTimer);
+  window.checkinTimer = setTimeout(() => {
+      el.classList.add('hidden');
+  }, 4000);
+}
+
+// Dibuja un Pop-up gigante que obliga al recepcionista a avisarle al cliente
+function showWarningModal(name, days) {
+  const modalId = 'warning-modal-' + Date.now();
+  const timeText = days === 0 ? "HOY MISMO" : `en ${days} días`;
+  
+  const modalHTML = `
+  <div id="${modalId}" class="fixed inset-0 bg-black/80 z-[9999] flex items-center justify-center p-4 fade-in backdrop-blur-sm">
+     <div class="bg-[#14141f] border-2 border-amber-500 p-8 rounded-3xl w-full max-w-[450px] text-center shadow-[0_0_50px_rgba(245,158,11,0.2)]">
+        
+        <div class="w-24 h-24 mx-auto bg-amber-500 rounded-full flex items-center justify-center mb-6 animate-bounce shadow-lg shadow-amber-500/40">
+           <i data-lucide="bell-ring" class="w-12 h-12 text-white"></i>
+        </div>
+        
+        <h2 class="text-2xl font-black text-amber-500 mb-2 uppercase tracking-widest">¡Avisar al Cliente!</h2>
+        
+        <p class="text-lg text-white font-medium mb-8 leading-relaxed">
+           Recuérdale a <br><span class="text-2xl font-black text-amber-400 block my-2">${name}</span> que su mensualidad vence <span class="font-black text-amber-400 bg-amber-500/20 px-2 py-1 rounded">${timeText}</span>.
+        </p>
+        
+        <button onclick="document.getElementById('${modalId}').remove()" class="w-full py-4 bg-amber-500 hover:bg-amber-400 text-black rounded-xl text-lg font-black uppercase tracking-widest transition-all hover:scale-105 active:scale-95 shadow-lg shadow-amber-500/30">
+           ¡Ya le avisé!
+        </button>
+        
+     </div>
+  </div>`;
+  
+  document.body.insertAdjacentHTML('beforeend', modalHTML);
+  if(window.lucide) lucide.createIcons();
 }
 
 // ===== FINANCE =====
@@ -1686,6 +1877,92 @@ async function deleteSaleRecord(backendId) {
   } else {
       toast('Error al cancelar la venta','error');
   }
+}
+
+// ===== CREDENCIAL DIGITAL =====
+window.openDigitalCard = async function(backendId) {
+    let client = allRecords.find(r => r.__backendId === backendId);
+    if(client) {
+        // Si es un cliente viejo que no tenía código, le generamos uno y lo guardamos
+        if(!client.barcode) {
+            client.barcode = Math.floor(1000000000 + Math.random() * 9000000000).toString();
+            await window.dataSdk.update(client);
+        }
+        showDigitalCard(client);
+    }
+}
+
+function showDigitalCard(client) {
+  // Limpiamos modales previos si existen
+  const existingModal = document.getElementById('digital-card-modal');
+  if(existingModal) existingModal.remove();
+
+  const modalHTML = `
+  <div id="digital-card-modal" class="fixed inset-0 bg-black/90 z-[9999] flex items-center justify-center p-4 fade-in">
+     <div class="bg-gym-surface p-6 rounded-2xl border border-gym-border w-full max-w-[350px]">
+        <div class="flex justify-between items-center mb-6">
+           <h3 class="text-lg font-800 text-white flex items-center gap-2"><i data-lucide="id-card" class="w-5 h-5 text-gym-accent"></i> Credencial Digital</h3>
+           <button onclick="document.getElementById('digital-card-modal').remove(); navigateTo('clients');" class="text-gym-muted hover:text-white bg-gym-bg p-2 rounded-lg"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+        
+        <div id="credencial-export" class="bg-[#14141f] rounded-2xl border-2 border-[#f43f5e] p-6 relative overflow-hidden w-full mx-auto shadow-2xl" style="width: 280px; min-height: 420px;">
+           <div class="relative z-10 flex flex-col h-full justify-between">
+             
+             <div class="text-center mt-2">
+               <div class="w-14 h-14 mx-auto mb-3 rounded-2xl bg-[#f43f5e] flex items-center justify-center shadow-lg shadow-[#f43f5e]/40">
+                  <svg class="w-8 h-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.4 14.4 9.6 9.6"/><path d="M18.65 21.35a.35.35 0 0 1-.5-.5l-9.5-9.5a.35.35 0 0 1 .5-.5l9.5 9.5a.35.35 0 0 1-.5.5Z"/><path d="M2.65 5.35a.35.35 0 0 1-.5-.5l9.5-9.5a.35.35 0 0 1 .5.5l-9.5 9.5a.35.35 0 0 1 .5.5Z"/><path d="m14 10-4 4"/><path d="m18 14-4 4"/><path d="m10 6-4 4"/><path d="m14 2-4 4"/></svg>
+               </div>
+               <h2 class="text-xl font-black text-white tracking-widest uppercase mb-1">${window.elementSdk ? window.elementSdk.config.gym_name : 'GymPro'}</h2>
+               <p class="text-[9px] text-[#f43f5e] font-bold uppercase tracking-[0.3em]">Acceso de Socio</p>
+             </div>
+             
+             <div class="bg-[#0a0a0f] rounded-xl p-4 text-center border border-[#1e1e2e] shadow-inner mt-6 mb-6">
+                <p class="text-[10px] text-[#64748b] uppercase font-bold tracking-wider mb-1">Nombre</p>
+                <p class="font-black text-lg text-white truncate px-2">${client.name}</p>
+                <div class="mt-3 pt-3 border-t border-[#1e1e2e]">
+                   <p class="text-[10px] text-[#64748b] uppercase font-bold tracking-wider">Plan Actual</p>
+                   <p class="font-bold text-sm text-[#10b981]">${client.membership}</p>
+                </div>
+             </div>
+             
+             <div class="bg-white p-3 rounded-xl flex flex-col items-center justify-center">
+                <svg id="barcode-svg"></svg>
+             </div>
+           </div>
+        </div>
+        
+        <button onclick="downloadPDF('${client.name}')" class="w-full mt-6 px-4 py-3 bg-gym-accent hover:bg-gym-accentHover text-white rounded-lg text-sm font-800 transition-colors shadow-lg shadow-gym-accent/20 flex items-center justify-center gap-2"><i data-lucide="download" class="w-4 h-4"></i> Guardar Credencial en PDF</button>
+     </div>
+  </div>`;
+  
+  document.body.insertAdjacentHTML('beforeend', modalHTML);
+  if(window.lucide) lucide.createIcons();
+  
+  // Dibujamos el código de barras usando la librería JsBarcode
+  JsBarcode("#barcode-svg", client.barcode, {
+      format: "CODE128",
+      lineColor: "#000",
+      width: 2,
+      height: 40,
+      displayValue: true,
+      fontSize: 12,
+      margin: 0
+  });
+}
+
+window.downloadPDF = function(clientName) {
+    const element = document.getElementById('credencial-export');
+    const opt = {
+        margin:       0,
+        filename:     `Credencial_${clientName.replace(/\s+/g, '_')}.pdf`,
+        image:        { type: 'jpeg', quality: 1 },
+        html2canvas:  { scale: 3, useCORS: true, backgroundColor: '#0a0a0f' },
+        jsPDF:        { unit: 'in', format: [3.1, 4.6], orientation: 'portrait' }
+    };
+    
+    html2pdf().set(opt).from(element).save().then(() => {
+        toast('¡PDF Descargado exitosamente!');
+    });
 }
 
 // ===== DELETE GENÉRICO Y EN CASCADA =====
