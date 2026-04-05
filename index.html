@@ -1437,45 +1437,138 @@ function showWarningModal(name, days) {
   if(window.lucide) lucide.createIcons();
 }
 
-// ===== FINANCE =====
+// ===== FINANCE MEJORADO (GRÁFICA MENSUAL INTERACTIVA) =====
 function renderFinance() {
   const transactions = [...getRecords('payment'), ...getRecords('sale')];
-  const now = new Date();
-  const todayTx = transactions.filter(p=>p.date===today());
-  const weekTx = transactions.filter(p=>{if(!p.date)return false;const d=new Date(p.date + 'T12:00:00');const diff=(now-d)/(1000*60*60*24);return diff<=7;});
-  const monthTx = transactions.filter(p=>p.date&&p.date.startsWith(now.toISOString().slice(0,7)));
   
+  // Variables globales para recordar en qué mes y día estamos navegando
+  window.financeDate = window.financeDate || new Date();
+  window.financeSelectedDate = window.financeSelectedDate || today();
+
+  const year = window.financeDate.getFullYear();
+  const month = window.financeDate.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const monthStr = `${year}-${String(month+1).padStart(2,'0')}`;
+  
+  // Si el mes seleccionado cambia, forzamos a que el día seleccionado sea dentro de ese mes
+  if (!window.financeSelectedDate.startsWith(monthStr)) {
+      window.financeSelectedDate = `${monthStr}-01`;
+  }
+  const displayDateStr = window.financeSelectedDate;
+
+  // 1. Filtrar transacciones del MES seleccionado
+  const monthTx = transactions.filter(t => t.date && t.date.startsWith(monthStr));
+  const monthTotal = monthTx.reduce((s, t) => s + (Number(t.amount)||0), 0);
+  
+  // 2. Filtrar transacciones del DÍA seleccionado (al darle clic a la gráfica)
+  const dayTx = monthTx.filter(t => t.date === displayDateStr);
+  const dayTotal = dayTx.reduce((s, t) => s + (Number(t.amount)||0), 0);
+  
+  // 3. Filtrar transacciones de la SEMANA (7 días hacia atrás desde el día seleccionado)
+  const selDateObj = new Date(displayDateStr + 'T12:00:00');
+  const weekTx = transactions.filter(t => {
+      if (!t.date) return false;
+      const d = new Date(t.date + 'T12:00:00');
+      const diff = (selDateObj - d) / (1000*60*60*24);
+      return diff >= 0 && diff < 7;
+  });
+  const weekTotal = weekTx.reduce((s, t) => s + (Number(t.amount)||0), 0);
+
+  // Preparamos los datos para los 28/30/31 días de la gráfica
+  let chartData = [];
+  let maxW = 1;
+  
+  for(let d=1; d<=daysInMonth; d++) {
+      const dStr = `${monthStr}-${String(d).padStart(2,'0')}`;
+      const dailySum = monthTx.filter(t => t.date === dStr).reduce((s, t) => s + (Number(t.amount)||0), 0);
+      chartData.push({ date: dStr, day: d, sum: dailySum });
+      if(dailySum > maxW) maxW = dailySum;
+  }
+  
+  // Desglose de Métodos y Membresías EXCLUSIVO del mes seleccionado
   const methods = {};
-  transactions.forEach(p=>{const m=p.method||'Otro';methods[m]=(methods[m]||0)+(p.amount||0);});
+  monthTx.forEach(p => { const m = p.method || 'Otro'; methods[m] = (methods[m] || 0) + (Number(p.amount) || 0); });
+  
   const memberships = {};
-  getRecords('payment').forEach(p=>{const m=p.membership||'Otro';memberships[m]=(memberships[m]||0)+1;});
+  getRecords('payment').filter(p => p.date && p.date.startsWith(monthStr)).forEach(p => { 
+      const m = p.membership || 'Otro'; memberships[m] = (memberships[m] || 0) + 1; 
+  });
+
+  const monthName = window.financeDate.toLocaleDateString('es-MX', {month:'long', year:'numeric'});
 
   return `
-  <div class="fade-in space-y-4">
-    <h1 class="text-xl font-800">Finanzas y Reportes globales</h1>
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-      ${statCard('calendar','Hoy',formatMoney(todayTx.reduce((s,p)=>s+(p.amount||0),0)),'bg-emerald-500/10','text-emerald-400')}
-      ${statCard('calendar','Semana',formatMoney(weekTx.reduce((s,p)=>s+(p.amount||0),0)),'bg-blue-500/10','text-blue-400')}
-      ${statCard('calendar','Mes',formatMoney(monthTx.reduce((s,p)=>s+(p.amount||0),0)),'bg-violet-500/10','text-violet-400')}
+  <div class="fade-in space-y-5">
+    <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+      <h1 class="text-xl font-800">Finanzas y Reportes</h1>
+      
+      <div class="flex items-center bg-gym-surface border border-gym-border rounded-xl p-1 shadow-lg">
+         <button onclick="changeFinanceMonth(-1)" class="p-2 hover:bg-gym-bg rounded-lg transition-colors text-gym-muted hover:text-white"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+         <span class="text-sm font-800 uppercase tracking-widest px-4 min-w-[150px] text-center text-gym-accent">${monthName}</span>
+         <button onclick="changeFinanceMonth(1)" class="p-2 hover:bg-gym-bg rounded-lg transition-colors text-gym-muted hover:text-white"><i data-lucide="chevron-right" class="w-4 h-4"></i></button>
+      </div>
     </div>
+    
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      ${statCard('calendar-days', `Día (${formatDate(displayDateStr)})`, formatMoney(dayTotal), 'bg-emerald-500/10', 'text-emerald-400')}
+      ${statCard('calendar', 'Semana (7 días previos)', formatMoney(weekTotal), 'bg-blue-500/10', 'text-blue-400')}
+      ${statCard('calendar-range', `Mes (${monthName})`, formatMoney(monthTotal), 'bg-violet-500/10', 'text-violet-400')}
+    </div>
+
+    <div class="bg-gym-surface rounded-2xl p-5 border border-gym-border shadow-lg">
+       <h3 class="text-sm font-800 mb-6 flex items-center gap-2"><i data-lucide="bar-chart-3" class="w-5 h-5 text-gym-accent"></i> Ingresos Diarios del Mes</h3>
+       
+       <div class="flex items-end justify-between gap-1 h-48 mt-4">
+          ${chartData.map(d => `
+            <div onclick="selectFinanceDay('${d.date}')" class="flex-1 h-full flex flex-col items-center justify-end group relative cursor-pointer">
+               
+               <div class="absolute -top-10 bg-gym-bg text-white text-[11px] font-700 py-1.5 px-2.5 rounded-lg border border-gym-border opacity-0 group-hover:opacity-100 transition-all pointer-events-none whitespace-nowrap z-10 shadow-xl transform group-hover:-translate-y-1">
+                  ${formatMoney(d.sum)}
+               </div>
+               
+               <div class="w-full max-w-[12px] rounded-t-sm transition-all duration-300 ${d.date === displayDateStr ? 'bg-gym-accent shadow-[0_0_10px_rgba(244,63,94,0.6)]' : 'bg-gym-accent/30 group-hover:bg-gym-accent/60'}" style="height:${Math.max((d.sum/maxW)*100, 2)}%"></div>
+               
+               <span class="text-[9px] font-600 mt-2 transition-colors ${d.date === displayDateStr ? 'text-gym-accent' : 'text-gym-muted group-hover:text-white'}">${d.day}</span>
+            </div>
+          `).join('')}
+       </div>
+    </div>
+
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div class="bg-gym-surface rounded-xl p-4 border border-gym-border">
-        <h3 class="text-sm font-600 mb-3">Ingresos por método (Pagos + POS)</h3>
-        <div class="space-y-2">
-          ${Object.entries(methods).map(([m,v])=>{const pct=Math.round(v/Math.max(Object.values(methods).reduce((a,b)=>a+b,0),1)*100);return`<div><div class="flex justify-between text-xs mb-1"><span>${m}</span><span class="text-gym-muted">${formatMoney(v)} (${pct}%)</span></div><div class="h-2 bg-gym-border rounded-full overflow-hidden"><div class="h-full bg-gym-accent rounded-full" style="width:${pct}%"></div></div></div>`;}).join('')}
-          ${Object.keys(methods).length===0?'<p class="text-xs text-gym-muted text-center py-4">Sin datos</p>':''}
+      <div class="bg-gym-surface rounded-xl p-5 border border-gym-border">
+        <h3 class="text-sm font-700 mb-4 border-b border-gym-border pb-2">Ingresos por Método (${monthName})</h3>
+        <div class="space-y-3 mt-4">
+          ${Object.entries(methods).map(([m,v])=>{const pct=Math.round(v/Math.max(monthTotal,1)*100);return`<div><div class="flex justify-between text-xs mb-1.5 font-500"><span>${m}</span><span class="text-gym-muted">${formatMoney(v)} <span class="text-[10px] ml-1">(${pct}%)</span></span></div><div class="h-2 bg-gym-bg rounded-full overflow-hidden border border-gym-border"><div class="h-full bg-emerald-400 rounded-full" style="width:${pct}%"></div></div></div>`;}).join('')}
+          ${Object.keys(methods).length===0?'<p class="text-xs text-gym-muted text-center py-6">Sin ingresos en este mes</p>':''}
         </div>
       </div>
-      <div class="bg-gym-surface rounded-xl p-4 border border-gym-border">
-        <h3 class="text-sm font-600 mb-3">Membresías más vendidas</h3>
-        <div class="space-y-2">
-          ${Object.entries(memberships).sort((a,b)=>b[1]-a[1]).map(([m,c])=>`<div class="flex items-center justify-between p-2 bg-gym-bg rounded-lg"><span class="text-xs font-500">${m}</span><span class="text-xs font-700 text-gym-accent">${c}</span></div>`).join('')}
-          ${Object.keys(memberships).length===0?'<p class="text-xs text-gym-muted text-center py-4">Sin datos</p>':''}
+      <div class="bg-gym-surface rounded-xl p-5 border border-gym-border">
+        <h3 class="text-sm font-700 mb-4 border-b border-gym-border pb-2">Membresías Renovadas (${monthName})</h3>
+        <div class="space-y-2 mt-4">
+          ${Object.entries(memberships).sort((a,b)=>b[1]-a[1]).map(([m,c])=>`<div class="flex items-center justify-between p-3 bg-gym-bg border border-gym-border rounded-xl hover:border-violet-500/50 transition-colors"><span class="text-xs font-600">${m}</span><span class="text-xs font-800 bg-violet-500/20 text-violet-400 px-3 py-1 rounded-lg">${c} renovaciones</span></div>`).join('')}
+          ${Object.keys(memberships).length===0?'<p class="text-xs text-gym-muted text-center py-6">Nadie renovó este mes</p>':''}
         </div>
       </div>
     </div>
   </div>`;
 }
+
+// Controles de la Gráfica Mensual
+window.changeFinanceMonth = function(offset) {
+    window.financeDate = window.financeDate || new Date();
+    window.financeDate.setMonth(window.financeDate.getMonth() + offset);
+    
+    // Al cambiar de mes, auto-seleccionamos el día 1 de ese nuevo mes para evitar bugs de fechas
+    const year = window.financeDate.getFullYear();
+    const month = window.financeDate.getMonth();
+    window.financeSelectedDate = `${year}-${String(month+1).padStart(2,'0')}-01`;
+    
+    renderCurrentSection();
+};
+
+window.selectFinanceDay = function(dateStr) {
+    window.financeSelectedDate = dateStr;
+    renderCurrentSection();
+};
 
 // ===== PRODUCTS =====
 function renderProducts() {
