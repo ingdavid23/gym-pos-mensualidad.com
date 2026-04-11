@@ -145,6 +145,7 @@ let recordCount = 0;
 let calendarDate = new Date(); 
 let dashboardChartRange = 'week'; // Controla si la gráfica muestra 'week' (semana) o 'month' (meses)
 let editingProductId = null; // Para rastrear qué producto estamos editando
+let editingClientId = null; // Controla si estamos editando un cliente
 
 const systemCollections = ['client', 'payment', 'user', 'checkin', 'product', 'sale', 'log'];
 
@@ -343,7 +344,7 @@ function renderCurrentSection() {
     dashboard: renderDashboard, 
     clients: renderClients, 
     payments: renderPayments, 
-    'payment-history': renderPaymentHistory, // <--- NUEVA VISTA
+    'payment-history': renderPaymentHistory, 
     checkin: renderCheckin, 
     finance: renderFinance, 
     products: renderProducts, 
@@ -353,7 +354,30 @@ function renderCurrentSection() {
     users: renderUsers 
   };
   const fn = map[currentSection];
-  if(fn) { c.innerHTML = fn(); if(window.lucide) lucide.createIcons(); }
+  
+  if(fn) { 
+    // 1. RESPALDAR TEXTO DEL ESCÁNER (Por si está escribiendo y la pantalla se refresca por otro lado)
+    let checkinText = '';
+    if (currentSection === 'checkin') {
+        const input = document.getElementById('checkin-search');
+        if (input) checkinText = input.value;
+    }
+
+    // 2. REDIBUJAR PANTALLA
+    c.innerHTML = fn(); 
+    if(window.lucide) lucide.createIcons(); 
+    
+    // 3. RECUPERAR FOCO Y TEXTO OBLIGATORIAMENTE
+    if (currentSection === 'checkin') {
+        setTimeout(() => {
+            const input = document.getElementById('checkin-search');
+            if (input) {
+                input.value = checkinText; // Le devolvemos lo que llevaba escrito
+                input.focus(); // Obligamos a que el cursor se quede parpadeando ahí
+            }
+        }, 10); // 10 milisegundos de retraso para asegurar que la pantalla ya se pintó
+    }
+  }
 }
 
 // ===== DASHBOARD =====
@@ -671,8 +695,6 @@ function clientCard(c) {
     statusColor = 'bg-amber-500/10 text-amber-400';
   }
 
-  // Dentro de la función clientCard(c), cambia el return por este:
-
   return `<div class="bg-gym-surface rounded-xl p-3 border border-gym-border flex items-center gap-3 slide-in" data-client-name="${(c.name||'').toLowerCase()}">
     <div class="w-10 h-10 rounded-full ${diffDays >= 0 ? 'bg-gym-accent/20 text-gym-accent' : 'bg-gray-700 text-gray-400'} flex items-center justify-center font-700 text-xs shrink-0">${initials}</div>
     <div class="flex-1 min-w-0">
@@ -681,10 +703,14 @@ function clientCard(c) {
       <p class="text-[10px] font-600 ${diffDays < 0 ? 'text-red-400' : (diffDays <= 7 ? 'text-amber-400' : 'text-emerald-400')} mt-0.5">Vence: ${formatDate(c.expiry)}</p>
     </div>
     
-    <button onclick="openDigitalCard('${c.__backendId}')" class="p-1.5 hover:bg-blue-500/10 rounded-lg transition-colors shrink-0" title="Ver Credencial Digital"><i data-lucide="qr-code" class="w-4 h-4 text-gym-muted hover:text-blue-400"></i></button>
-
-    <span class="px-2 py-0.5 rounded-full text-[10px] font-600 ${statusColor} shrink-0">${statusText}</span>
-    <button onclick="deleteRecord('${c.__backendId}','client')" class="p-1.5 hover:bg-red-500/10 rounded-lg transition-colors shrink-0"><i data-lucide="trash-2" class="w-3.5 h-3.5 text-gym-muted hover:text-red-400"></i></button>
+    <div class="flex gap-1 shrink-0 items-center">
+      <button onclick="openDigitalCard('${c.__backendId}')" class="p-1.5 hover:bg-blue-500/10 rounded-lg transition-colors" title="Ver Credencial Digital"><i data-lucide="qr-code" class="w-4 h-4 text-gym-muted hover:text-blue-400"></i></button>
+      
+      <button onclick="showClientForm('${c.__backendId}')" class="p-1.5 hover:bg-amber-500/10 rounded-lg transition-colors" title="Editar Cliente"><i data-lucide="edit-3" class="w-4 h-4 text-gym-muted hover:text-amber-400"></i></button>
+      
+      <span class="px-2 py-0.5 rounded-full text-[10px] font-600 ${statusColor} shrink-0 hidden sm:inline-block">${statusText}</span>
+      <button onclick="deleteRecord('${c.__backendId}','client')" class="p-1.5 hover:bg-red-500/10 rounded-lg transition-colors"><i data-lucide="trash-2" class="w-4 h-4 text-gym-muted hover:text-red-400"></i></button>
+    </div>
   </div>`;
 }
 
@@ -693,31 +719,49 @@ function filterClients() {
   document.querySelectorAll('[data-client-name]').forEach(el => { el.style.display = el.dataset.clientName.includes(q)?'':'none'; });
 }
 
-function showClientForm() {
+function showClientForm(id = null) {
+  editingClientId = id; // Guardamos el ID del cliente si estamos editando
+  
+  // Valores por defecto para cliente nuevo
+  let c = { name: '', phone: '', email: '', membership: 'Mensual', date: today() };
+  
+  // Si hay un ID, buscamos los datos del cliente para rellenar el formulario
+  if(id) {
+    const existing = allRecords.find(r => r.__backendId === id);
+    if(existing) c = existing;
+  }
+
   const area = document.getElementById('client-form-area');
   area.innerHTML = `
-  <div class="bg-gym-surface rounded-xl p-4 border border-gym-border fade-in">
-    <h3 class="text-sm font-600 mb-3">Nuevo Cliente e Inscripción</h3>
+  <div class="bg-gym-surface rounded-xl p-4 border border-gym-border fade-in mb-4">
+    <h3 class="text-sm font-600 mb-3">${id ? 'Editar Datos del Cliente' : 'Nuevo Cliente e Inscripción'}</h3>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <div><label for="cf-name" class="text-[10px] text-gym-muted">Nombre completo</label><input id="cf-name" class="w-full px-3 py-2 rounded-lg text-xs mt-1"></div>
-      <div><label for="cf-phone" class="text-[10px] text-gym-muted">Teléfono</label><input id="cf-phone" class="w-full px-3 py-2 rounded-lg text-xs mt-1"></div>
-      <div><label for="cf-email" class="text-[10px] text-gym-muted">Email</label><input id="cf-email" type="email" class="w-full px-3 py-2 rounded-lg text-xs mt-1"></div>
-      <div><label for="cf-membership" class="text-[10px] text-gym-muted">Membresía</label><select id="cf-membership" class="w-full px-3 py-2 rounded-lg text-xs mt-1"><option value="Diario">Diario</option><option value="Semanal">Semanal</option><option value="Mensual" selected>Mensual</option><option value="Personalizado">Personalizado</option></select></div>
+      <div><label for="cf-name" class="text-[10px] text-gym-muted">Nombre completo</label><input id="cf-name" value="${c.name}" class="w-full px-3 py-2 rounded-lg text-xs mt-1"></div>
+      <div><label for="cf-phone" class="text-[10px] text-gym-muted">Teléfono</label><input id="cf-phone" value="${c.phone || ''}" class="w-full px-3 py-2 rounded-lg text-xs mt-1"></div>
+      <div><label for="cf-email" class="text-[10px] text-gym-muted">Email</label><input id="cf-email" type="email" value="${c.email || ''}" class="w-full px-3 py-2 rounded-lg text-xs mt-1"></div>
+      <div><label for="cf-membership" class="text-[10px] text-gym-muted">Membresía</label>
+        <select id="cf-membership" class="w-full px-3 py-2 rounded-lg text-xs mt-1">
+          <option value="Diario" ${c.membership === 'Diario' ? 'selected' : ''}>Diario</option>
+          <option value="Semanal" ${c.membership === 'Semanal' ? 'selected' : ''}>Semanal</option>
+          <option value="Mensual" ${c.membership === 'Mensual' ? 'selected' : ''}>Mensual</option>
+          <option value="Personalizado" ${c.membership === 'Personalizado' ? 'selected' : ''}>Personalizado</option>
+        </select>
+      </div>
       
-      <div><label for="cf-date" class="text-[10px] text-gym-muted">Fecha de Inscripción</label><input id="cf-date" type="date" value="${today()}" class="w-full px-3 py-2 rounded-lg text-xs mt-1" style="color-scheme: dark;"></div>
+      <div><label for="cf-date" class="text-[10px] text-gym-muted">Fecha de Inscripción</label><input id="cf-date" type="date" value="${c.date}" class="w-full px-3 py-2 rounded-lg text-xs mt-1" style="color-scheme: dark;" ${id ? 'readonly disabled opacity-50 cursor-not-allowed' : ''}></div>
       
+      ${!id ? `
       <div class="border border-gym-accent/30 bg-gym-accent/5 p-3 rounded-lg col-span-1 sm:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-3 mt-1">
-         <div class="col-span-1 sm:col-span-3 mb-[-8px]"><span class="text-[10px] font-700 text-gym-accent uppercase tracking-wider">Primer Pago (Genera Ticket)</span></div>
-         
+         <div class="col-span-1 sm:col-span-3 mb-[-8px]"><span class="text-[10px] font-700 text-gym-accent uppercase tracking-wider">Primer Pago (Opcional - Genera Ticket y Credencial)</span></div>
          <div><label for="cf-amount" class="text-[10px] text-gym-muted">Monto a Cobrar ($)</label><input id="cf-amount" type="number" placeholder="Ej: 500" class="w-full px-3 py-2 rounded-lg text-xs mt-1 border-gym-accent/50 focus:border-gym-accent"></div>
          <div><label for="cf-received" class="text-[10px] text-gym-muted">Monto Recibido ($)</label><input id="cf-received" type="number" placeholder="Ej: 600" class="w-full px-3 py-2 rounded-lg text-xs mt-1 border-gym-accent/50 focus:border-gym-accent"></div>
          <div><label for="cf-method" class="text-[10px] text-gym-muted">Método de Pago</label><select id="cf-method" class="w-full px-3 py-2 rounded-lg text-xs mt-1 border-gym-accent/50 focus:border-gym-accent"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option></select></div>
-      </div>
+      </div>` : ''}
     </div>
     
     <div class="flex gap-2 mt-4">
-      <button onclick="saveClient()" class="px-4 py-2 bg-gym-accent hover:bg-gym-accentHover text-white rounded-lg text-xs font-600 transition-colors"><i data-lucide="check" class="w-3.5 h-3.5 inline mr-1"></i> Guardar e Inscribir</button>
-      <button onclick="document.getElementById('client-form-area').innerHTML=''" class="px-4 py-2 bg-gym-border text-gym-muted rounded-lg text-xs font-600 hover:bg-gym-border/80 transition-colors">Cancelar</button>
+      <button onclick="saveClient()" class="px-4 py-2 bg-gym-accent hover:bg-gym-accentHover text-white rounded-lg text-xs font-600 transition-colors"><i data-lucide="check" class="w-3.5 h-3.5 inline mr-1"></i> ${id ? 'Guardar Cambios' : 'Guardar e Inscribir'}</button>
+      <button onclick="document.getElementById('client-form-area').innerHTML=''; editingClientId=null;" class="px-4 py-2 bg-gym-border text-gym-muted rounded-lg text-xs font-600 hover:bg-gym-border/80 transition-colors">Cancelar</button>
     </div>
   </div>`;
   if(window.lucide) lucide.createIcons();
@@ -727,6 +771,27 @@ async function saveClient() {
   if(!name) { toast('Ingresa el nombre','error'); return; }
   
   const membership = document.getElementById('cf-membership').value;
+  const phone = document.getElementById('cf-phone').value.trim();
+  const email = document.getElementById('cf-email').value.trim();
+
+  // --- LÓGICA DE EDICIÓN ---
+  if(editingClientId) {
+     const existing = allRecords.find(r => r.__backendId === editingClientId);
+     if(existing) {
+         // Si se cambió el nombre, deberíamos actualizar su historial (opcional, pero buena práctica)
+         const r = await window.dataSdk.update({ ...existing, name, phone, email, membership });
+         if(r.isOk) {
+             toast('Datos del cliente actualizados');
+             editingClientId = null;
+             document.getElementById('client-form-area').innerHTML = '';
+         } else {
+             toast('Error al actualizar', 'error');
+         }
+     }
+     return; // Terminamos aquí si solo estábamos editando
+  }
+
+  // --- LÓGICA DE CREACIÓN (Cliente Nuevo) ---
   const inscriptionDateStr = document.getElementById('cf-date').value || today();
   const insDate = new Date(inscriptionDateStr + 'T12:00:00');
   
@@ -735,8 +800,8 @@ async function saveClient() {
   else if(membership === 'Semanal') { expiry.setDate(expiry.getDate() + 7); } 
   else if(membership === 'Diario') { expiry.setDate(expiry.getDate() + 1); }
 
-  const amountToCharge = parseFloat(document.getElementById('cf-amount').value) || 0;
-  const amountReceivedInput = document.getElementById('cf-received').value;
+  const amountToCharge = parseFloat(document.getElementById('cf-amount')?.value) || 0;
+  const amountReceivedInput = document.getElementById('cf-received')?.value;
   const amountReceived = amountReceivedInput === "" ? amountToCharge : parseFloat(amountReceivedInput);
 
   if (amountToCharge > 0 && amountReceived < amountToCharge) {
@@ -745,12 +810,10 @@ async function saveClient() {
   }
 
   const expiryStr = expiry.toISOString().split('T')[0];
-  
-  // GENERAR CÓDIGO DE BARRAS (10 Dígitos aleatorios)
   const barcode = Math.floor(1000000000 + Math.random() * 9000000000).toString();
 
   const clientData = {
-    type:'client', name, phone:document.getElementById('cf-phone').value.trim(), email:document.getElementById('cf-email').value.trim(), 
+    type:'client', name, phone, email, 
     membership, status:'active', date: inscriptionDateStr, expiry: expiryStr, barcode: barcode,
     amount:0, method:'', role:'', schedule:'', checkin_date:'', notes:'', category:''
   };
@@ -760,7 +823,7 @@ async function saveClient() {
   const r = await window.dataSdk.create(clientData);
   
   if(r.isOk) { 
-    clientData.__backendId = r.id; // Asignamos el ID
+    clientData.__backendId = r.id; 
     toast('Cliente registrado con éxito'); 
     
     if(amountToCharge > 0) {
@@ -776,7 +839,6 @@ async function saveClient() {
        await window.dataSdk.create(paymentRecord);
     }
     
-    // Mostramos la credencial digital sobre todo lo demás
     showDigitalCard(clientData);
 
   } else { 
@@ -1342,6 +1404,9 @@ async function doCheckin() {
   
   if(!inputVal) return;
 
+  // ¡CLAVE! Limpiamos el input inmediatamente para que la pistola esté lista para el siguiente cliente
+  inputEl.value = '';
+
   const client = getRecords('client').find(c => 
       (c.name || '').toLowerCase() === inputVal.toLowerCase() || 
       (c.phone || '') === inputVal ||
@@ -1350,7 +1415,7 @@ async function doCheckin() {
 
   if(!client) {
     showCheckinAlert(alertBox, 'bg-red-500/10 border-red-500/50', 'text-red-500', 'x-octagon', 'CLIENTE NO ENCONTRADO', `Verifica el nombre o número. Si es nuevo, regístralo primero.`);
-    inputEl.value = ''; inputEl.focus();
+    inputEl.focus();
     return;
   }
 
@@ -1361,35 +1426,25 @@ async function doCheckin() {
 
   // SEMÁFORO DE ACCESO
   if (diffDays < 0) {
-      // ROJO
       showCheckinAlert(alertBox, 'bg-red-500/20 border-red-500 shadow-lg shadow-red-500/20', 'text-red-500', 'alert-octagon', 'ACCESO DENEGADO', `<span class="font-800 text-white">${client.name}</span> tiene un adeudo. Su membresía venció hace ${Math.abs(diffDays)} días.`);
   } else if (diffDays <= 3) {
-      // AMARILLO
       showCheckinAlert(alertBox, 'bg-amber-500/20 border-amber-500 shadow-lg shadow-amber-500/20', 'text-amber-500', 'alert-triangle', 'ACCESO PERMITIDO (POR VENCER)', `¡Hola <span class="font-800 text-white">${client.name}</span>! Te quedan <strong>${diffDays} días</strong> de suscripción.`);
       await saveCheckin(client.name);
-      
-      // ---> ¡NUEVO!: LANZAR ALERTA GIGANTE PARA EL RECEPCIONISTA <---
-      showWarningModal(client.name, diffDays);
-
+      showWarningModal(client.name, diffDays); // Lanza la campana gigante
   } else {
-      // VERDE
       showCheckinAlert(alertBox, 'bg-emerald-500/20 border-emerald-500 shadow-lg shadow-emerald-500/20', 'text-emerald-500', 'check-circle-2', 'ACCESO CORRECTO', `¡A entrenar con todo, <span class="font-800 text-white">${client.name}</span>! (Vence en ${diffDays} días)`);
       await saveCheckin(client.name);
   }
-
-  inputEl.value = '';
-  inputEl.focus();
 }
 
-// Guarda la visita en Firebase y recarga la lista inferior
+// Guarda la visita en Firebase
 async function saveCheckin(name) {
   await window.dataSdk.create({
       type:'checkin', name, date:today(), checkin_date:new Date().toISOString(),
       phone:'', email:'', membership:'', status:'', amount:0, method:'', expiry:'', role:'', schedule:'', notes:'', category:''
   });
-  renderCurrentSection();
+  // Ya NO llamamos a renderCurrentSection() aquí para evitar parpadeos, Firebase lo hace solo.
 }
-
 // Dibuja la alerta gigante
 function showCheckinAlert(el, bgClasses, textClass, icon, title, msg) {
   el.className = `mt-4 p-6 rounded-2xl border-2 fade-in flex flex-col items-center justify-center gap-3 ${bgClasses}`;
